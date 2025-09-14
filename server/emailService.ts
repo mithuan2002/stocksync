@@ -29,6 +29,15 @@ class EmailService {
   }
 
   async sendLowStockAlert(notification: EmailNotification): Promise<boolean> {
+    if (!process.env.EMAIL_PASSWORD) {
+      console.warn('EMAIL_PASSWORD not configured - email notifications disabled');
+      console.log('Would send email to:', notification.to);
+      console.log('Subject:', notification.subject);
+      console.log('Product:', notification.productName, 'SKU:', notification.sku);
+      console.log('Stock:', notification.currentStock, 'Threshold:', notification.threshold);
+      return true; // Return true to continue processing
+    }
+
     try {
       const mailOptions = {
         from: `"FlowStock Alert System" <${SMTP_CONFIG.auth.user}>`,
