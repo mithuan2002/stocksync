@@ -15,6 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 function Dashboard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<Settings>({
+    id: "",
+    sellerId: "",
     globalLowStockThreshold: 10,
     emailNotifications: false,
     autoReconcile: true,

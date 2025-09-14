@@ -49,7 +49,7 @@ export function FileUploadZone({ onFileUpload, currentSeller }: FileUploadZonePr
     formData.append('csvFile', file);
     formData.append('sellerId', currentSeller.id);
 
-    console.log(`Auto-parsing and uploading ${file.name}`);
+    console.log(`Auto-parsing and uploading ${file.name} for seller: ${currentSeller.id} (${currentSeller.name})`);
 
     try {
       setIsUploading(true);

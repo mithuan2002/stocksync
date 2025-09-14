@@ -449,6 +449,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Require sellerId from request body
       const sellerId = req.body.sellerId;
+      console.log(`Upload request received with sellerId: ${sellerId}`);
       if (!sellerId) {
         return res.status(400).json({ error: "Seller ID is required" });
       }
@@ -456,8 +457,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Validate seller exists
       const seller = await storage.getSellerById(sellerId);
       if (!seller) {
+        console.log(`Seller not found: ${sellerId}`);
         return res.status(404).json({ error: "Seller not found" });
       }
+      console.log(`Upload processing for seller: ${seller.id} (${seller.name})`);
 
       const csvContent = req.file.buffer.toString('utf-8');
       const filename = req.file.originalname;
