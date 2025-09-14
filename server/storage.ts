@@ -311,11 +311,11 @@ export class DatabaseStorage implements IStorage {
   // Sellers
   async getAllSellers(): Promise<Seller[]> {
     const result = await db.select().from(sellers).orderBy(desc(sellers.createdAt));
-    return result.map(s => ({
+    return result.map((s: any) => ({
       id: s.id,
       email: s.email,
       name: s.name,
-      companyName: s.companyName || undefined,
+      companyName: s.companyName ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     }));
@@ -330,7 +330,7 @@ export class DatabaseStorage implements IStorage {
       id: s.id,
       email: s.email,
       name: s.name,
-      companyName: s.companyName || undefined,
+      companyName: s.companyName ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -345,7 +345,7 @@ export class DatabaseStorage implements IStorage {
       id: s.id,
       email: s.email,
       name: s.name,
-      companyName: s.companyName || undefined,
+      companyName: s.companyName ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -358,7 +358,7 @@ export class DatabaseStorage implements IStorage {
       id: s.id,
       email: s.email,
       name: s.name,
-      companyName: s.companyName || undefined,
+      companyName: s.companyName ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -375,7 +375,7 @@ export class DatabaseStorage implements IStorage {
       id: s.id,
       email: s.email,
       name: s.name,
-      companyName: s.companyName || undefined,
+      companyName: s.companyName ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -390,12 +390,12 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select().from(suppliers)
       .where(eq(suppliers.sellerId, sellerId))
       .orderBy(desc(suppliers.createdAt));
-    return result.map(s => ({
+    return result.map((s: any) => ({
       id: s.id,
       sellerId: s.sellerId,
       name: s.name,
       email: s.email,
-      contactPerson: s.contactPerson || undefined,
+      contactPerson: s.contactPerson ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     }));
@@ -411,7 +411,7 @@ export class DatabaseStorage implements IStorage {
       sellerId: s.sellerId,
       name: s.name,
       email: s.email,
-      contactPerson: s.contactPerson || undefined,
+      contactPerson: s.contactPerson ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -425,7 +425,7 @@ export class DatabaseStorage implements IStorage {
       sellerId: s.sellerId,
       name: s.name,
       email: s.email,
-      contactPerson: s.contactPerson || undefined,
+      contactPerson: s.contactPerson ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -443,7 +443,7 @@ export class DatabaseStorage implements IStorage {
       sellerId: s.sellerId,
       name: s.name,
       email: s.email,
-      contactPerson: s.contactPerson || undefined,
+      contactPerson: s.contactPerson ?? undefined,
       createdAt: s.createdAt?.toISOString(),
       updatedAt: s.updatedAt?.toISOString(),
     };
@@ -465,7 +465,7 @@ export class DatabaseStorage implements IStorage {
     .groupBy(products.id)
     .orderBy(desc(products.createdAt));
 
-    return result.map(({ product: p, notificationCount }) => ({
+    return result.map(({ product: p, notificationCount }: { product: any; notificationCount: number }) => ({
       id: p.id,
       sellerId: p.sellerId,
       sku: p.sku,
@@ -474,7 +474,7 @@ export class DatabaseStorage implements IStorage {
       totalQuantity: p.totalQuantity,
       lowStockThreshold: p.lowStockThreshold,
       isLowStock: p.isLowStock,
-      supplierId: p.supplierId || undefined,
+      supplierId: p.supplierId ?? undefined,
       forecastedStock: p.forecastedStock ? Number(p.forecastedStock) : undefined,
       notificationsSent: notificationCount || 0,
     }));
@@ -493,7 +493,7 @@ export class DatabaseStorage implements IStorage {
 
     if (result.length === 0) return undefined;
 
-    const { product: p, notificationCount } = result[0];
+    const { product: p, notificationCount }: { product: any; notificationCount: number } = result[0];
     return {
       id: p.id,
       sellerId: p.sellerId,
@@ -503,7 +503,7 @@ export class DatabaseStorage implements IStorage {
       totalQuantity: p.totalQuantity,
       lowStockThreshold: p.lowStockThreshold,
       isLowStock: p.isLowStock,
-      supplierId: p.supplierId || undefined,
+      supplierId: p.supplierId ?? undefined,
       forecastedStock: p.forecastedStock ? Number(p.forecastedStock) : undefined,
       notificationsSent: notificationCount || 0,
     };
@@ -525,7 +525,7 @@ export class DatabaseStorage implements IStorage {
       totalQuantity: p.totalQuantity,
       lowStockThreshold: p.lowStockThreshold,
       isLowStock: p.isLowStock,
-      supplierId: p.supplierId || undefined,
+      supplierId: p.supplierId ?? undefined,
       forecastedStock: p.forecastedStock ? Number(p.forecastedStock) : undefined,
       notificationsSent: 0,
     };
@@ -557,7 +557,7 @@ export class DatabaseStorage implements IStorage {
       totalQuantity: p.totalQuantity,
       lowStockThreshold: p.lowStockThreshold,
       isLowStock: p.isLowStock,
-      supplierId: p.supplierId || undefined,
+      supplierId: p.supplierId ?? undefined,
       forecastedStock: p.forecastedStock ? Number(p.forecastedStock) : undefined,
       notificationsSent: notificationCountResult[0]?.count || 0,
     };
