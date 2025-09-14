@@ -447,6 +447,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
+      // Require sellerId from request body
+      const sellerId = req.body.sellerId;
+      if (!sellerId) {
+        return res.status(400).json({ error: "Seller ID is required" });
+      }
+
+      // Validate seller exists
+      const seller = await storage.getSellerById(sellerId);
+      if (!seller) {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
       const csvContent = req.file.buffer.toString('utf-8');
       const filename = req.file.originalname;
       
@@ -457,7 +469,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { data: parsedData, detectedFormat } = parseCSVIntelligently(csvContent, filename);
         
         // Create upload record with detected info
-        const seller = await getOrCreateDefaultSeller();
         const uploadRecord = await storage.createCsvUpload({
           sellerId: seller.id,
           filename: filename,
@@ -477,7 +488,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units from ${detectedFormat.channel})`);
           
           // Check if product exists
-          const seller = await getOrCreateDefaultSeller();
           const existingProduct = await storage.getProductBySku(seller.id, row.sku!);
           
           if (existingProduct) {

@@ -250,7 +250,10 @@ function Dashboard() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
-                <FileUploadZone onFileUpload={handleFileUpload} />
+                <FileUploadZone 
+                  onFileUpload={handleFileUpload} 
+                  currentSeller={currentSeller} 
+                />
               </div>
               <div className="space-y-4">
                 <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">

@@ -7,9 +7,10 @@ import { useToast } from "@/hooks/use-toast";
 
 interface FileUploadZoneProps {
   onFileUpload?: (result: { success: boolean; message: string }) => void;
+  currentSeller?: { id: string; name: string; email: string };
 }
 
-export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
+export function FileUploadZone({ onFileUpload, currentSeller }: FileUploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ 
     name: string; 
@@ -35,8 +36,18 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
   }, []);
 
   const uploadFile = async (file: File) => {
+    if (!currentSeller?.id) {
+      toast({
+        title: "Error",
+        description: "Please select a seller account first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const formData = new FormData();
     formData.append('csvFile', file);
+    formData.append('sellerId', currentSeller.id);
 
     console.log(`Auto-parsing and uploading ${file.name}`);
 
