@@ -1,4 +1,3 @@
-
 import { useState, useCallback } from "react";
 import { Upload, FileText, AlertCircle, CheckCircle, Brain } from "lucide-react";
 import { Card } from "@/components/ui/card";
@@ -157,37 +156,48 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <div className="p-8 text-center">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <Brain className="h-12 w-12 text-primary" />
-            <Upload className="h-12 w-12 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">Intelligent CSV Auto-Parser</h3>
-          <p className="text-muted-foreground mb-4">
-            Drop any inventory CSV file here - our AI will automatically detect the format and channel
-          </p>
-          <input
-            type="file"
-            multiple
-            accept=".csv"
-            onChange={handleFileSelect}
-            className="hidden"
-            id="file-upload"
-            data-testid="input-file-upload"
-          />
-          <Button disabled={isUploading}>
-            <label htmlFor="file-upload" className="cursor-pointer" data-testid="button-browse-files">
-              {isUploading ? 'Auto-Parsing...' : 'Browse Files'}
-            </label>
-          </Button>
-          <div className="mt-4 text-xs text-muted-foreground">
-            <div className="space-y-1">
-              <div>✅ Auto-detects Amazon, Shopify, or any generic inventory format</div>
-              <div>✅ Intelligently maps columns like SKU, Product Name, Quantity</div>
-              <div>✅ No manual configuration required</div>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Upload Inventory CSV
+          </CardTitle>
+          <CardDescription>
+            Upload any inventory CSV file - Amazon, Shopify, or custom format. The system will automatically detect the format and parse the data.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="p-8 text-center">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <Brain className="h-12 w-12 text-primary" />
+              <Upload className="h-12 w-12 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-semibold mb-2">Intelligent CSV Auto-Parser</h3>
+            <p className="text-muted-foreground mb-4">
+              Drop any inventory CSV file here - our AI will automatically detect the format and channel
+            </p>
+            <Button disabled={isUploading}>
+              <label htmlFor="file-upload" className="cursor-pointer" data-testid="button-browse-files">
+                {isUploading ? 'Auto-Parsing...' : 'Browse Files'}
+              </label>
+            </Button>
+            <input
+              type="file"
+              multiple
+              accept=".csv"
+              onChange={handleFileSelect}
+              className="hidden"
+              id="file-upload"
+              data-testid="input-file-upload"
+            />
+            <div className="mt-4 text-xs text-muted-foreground">
+              <div className="space-y-1">
+                <div>✅ Auto-detects Amazon, Shopify, or any generic inventory format</div>
+                <div>✅ Intelligently maps columns like SKU, Product Name, Quantity</div>
+                <div>✅ No manual configuration required</div>
+              </div>
             </div>
           </div>
-        </div>
+        </CardContent>
       </Card>
 
       {uploadedFiles.length > 0 && (
@@ -222,7 +232,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
                     )}
                   </div>
                 </div>
-                
+
                 {file.detectedFormat && (
                   <div className="flex items-center gap-2 text-xs">
                     <Badge variant="outline" className="bg-blue-50 border-blue-200">
@@ -236,7 +246,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
                     </span>
                   </div>
                 )}
-                
+
                 {file.message && (
                   <div className="text-xs text-muted-foreground bg-background/50 p-2 rounded">
                     {file.message}

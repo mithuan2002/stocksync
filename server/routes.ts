@@ -332,7 +332,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const csvContent = req.file.buffer.toString('utf-8');
       const filename = req.file.originalname;
       
-      console.log(`Processing file: ${filename}`);
+      console.log(`Auto-parsing and processing file: ${filename}`);
 
       try {
         // Intelligent parsing
