@@ -36,39 +36,40 @@ export interface IStorage {
   createSeller(seller: InsertSeller): Promise<Seller>;
   updateSeller(id: string, seller: Partial<InsertSeller>): Promise<Seller>;
   deleteSeller(id: string): Promise<void>;
-  
+
   // Suppliers
   getSuppliersBySellerId(sellerId: string): Promise<Supplier[]>;
   getSupplierById(id: string): Promise<Supplier | undefined>;
   createSupplier(supplier: InsertSupplier): Promise<Supplier>;
   updateSupplier(id: string, supplier: Partial<InsertSupplier>): Promise<Supplier>;
   deleteSupplier(id: string): Promise<void>;
-  
+
   // Products
   getProductsBySellerId(sellerId: string): Promise<Product[]>;
   getProductBySku(sellerId: string, sku: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product>;
   deleteProduct(id: string): Promise<void>;
-  
+
   // CSV Uploads
   getCsvUploadsBySellerId(sellerId: string): Promise<CsvUpload[]>;
   getCsvUpload(id: string): Promise<CsvUpload | undefined>;
   createCsvUpload(upload: InsertCsvUpload): Promise<CsvUpload>;
   updateCsvUpload(id: string, upload: Partial<InsertCsvUpload>): Promise<CsvUpload>;
-  
+
   // Stock History
   getStockHistoryByProductId(productId: string, limit?: number): Promise<StockHistory[]>;
   createStockHistory(history: InsertStockHistory): Promise<StockHistory>;
-  
+
   // Notifications
   getNotificationsBySellerId(sellerId: string): Promise<Notification[]>;
   createNotification(notification: InsertNotification): Promise<Notification>;
   getNotificationsByProductId(productId: string): Promise<Notification[]>;
-  
+
   // Settings
   getSettingsBySellerId(sellerId: string): Promise<Settings>;
   updateSettings(sellerId: string, newSettings: Partial<InsertSettings>): Promise<Settings>;
+  createSettings(settingsData: InsertSettings): Promise<Settings>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -88,7 +89,7 @@ export class DatabaseStorage implements IStorage {
   async getSellerById(id: string): Promise<Seller | undefined> {
     const result = await db.select().from(sellers).where(eq(sellers.id, id)).limit(1);
     if (result.length === 0) return undefined;
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -103,7 +104,7 @@ export class DatabaseStorage implements IStorage {
   async getSellerByEmail(email: string): Promise<Seller | undefined> {
     const result = await db.select().from(sellers).where(eq(sellers.email, email)).limit(1);
     if (result.length === 0) return undefined;
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -133,7 +134,7 @@ export class DatabaseStorage implements IStorage {
       .set(seller)
       .where(eq(sellers.id, id))
       .returning();
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -168,7 +169,7 @@ export class DatabaseStorage implements IStorage {
   async getSupplierById(id: string): Promise<Supplier | undefined> {
     const result = await db.select().from(suppliers).where(eq(suppliers.id, id)).limit(1);
     if (result.length === 0) return undefined;
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -200,7 +201,7 @@ export class DatabaseStorage implements IStorage {
       .set(supplier)
       .where(eq(suppliers.id, id))
       .returning();
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -256,7 +257,7 @@ export class DatabaseStorage implements IStorage {
     .limit(1);
 
     if (result.length === 0) return undefined;
-    
+
     const { product: p, notificationCount } = result[0];
     return {
       id: p.id,
@@ -278,7 +279,7 @@ export class DatabaseStorage implements IStorage {
       ...product,
       channels: product.channels as any
     }).returning();
-    
+
     const p = result[0];
     return {
       id: p.id,
@@ -300,12 +301,12 @@ export class DatabaseStorage implements IStorage {
       ...product,
       channels: product.channels as any
     } : product;
-    
+
     const result = await db.update(products)
       .set(updateData)
       .where(eq(products.id, id))
       .returning();
-    
+
     const p = result[0];
     // Get notification count
     const notificationCountResult = await db.select({ count: count() })
@@ -352,7 +353,7 @@ export class DatabaseStorage implements IStorage {
   async getCsvUpload(id: string): Promise<CsvUpload | undefined> {
     const result = await db.select().from(csvUploads).where(eq(csvUploads.id, id)).limit(1);
     if (result.length === 0) return undefined;
-    
+
     const u = result[0];
     return {
       id: u.id,
@@ -369,7 +370,7 @@ export class DatabaseStorage implements IStorage {
 
   async createCsvUpload(upload: InsertCsvUpload): Promise<CsvUpload> {
     const result = await db.insert(csvUploads).values(upload).returning();
-    
+
     const u = result[0];
     return {
       id: u.id,
@@ -389,7 +390,7 @@ export class DatabaseStorage implements IStorage {
       .set(upload)
       .where(eq(csvUploads.id, id))
       .returning();
-    
+
     const u = result[0];
     return {
       id: u.id,
@@ -410,7 +411,7 @@ export class DatabaseStorage implements IStorage {
       .where(eq(stockHistory.productId, productId))
       .orderBy(desc(stockHistory.recordedAt))
       .limit(limit);
-    
+
     return result.map(h => ({
       id: h.id,
       productId: h.productId,
@@ -442,7 +443,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select().from(notifications)
       .where(eq(notifications.sellerId, sellerId))
       .orderBy(desc(notifications.sentAt));
-    
+
     return result.map(n => ({
       id: n.id,
       sellerId: n.sellerId,
@@ -476,7 +477,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select().from(notifications)
       .where(eq(notifications.productId, productId))
       .orderBy(desc(notifications.sentAt));
-    
+
     return result.map(n => ({
       id: n.id,
       sellerId: n.sellerId,
@@ -495,7 +496,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select().from(settings)
       .where(eq(settings.sellerId, sellerId))
       .limit(1);
-    
+
     if (result.length === 0) {
       // Create default settings for new seller
       const defaultSettings = {
@@ -504,7 +505,7 @@ export class DatabaseStorage implements IStorage {
         emailNotifications: false,
         autoReconcile: true,
       };
-      
+
       const created = await db.insert(settings).values(defaultSettings).returning();
       const s = created[0];
       return {
@@ -517,7 +518,7 @@ export class DatabaseStorage implements IStorage {
         smtpPassword: s.smtpPassword || undefined,
       };
     }
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -535,7 +536,7 @@ export class DatabaseStorage implements IStorage {
       .set(newSettings)
       .where(eq(settings.sellerId, sellerId))
       .returning();
-    
+
     const s = result[0];
     return {
       id: s.id,
@@ -546,6 +547,11 @@ export class DatabaseStorage implements IStorage {
       smtpEmail: s.smtpEmail || undefined,
       smtpPassword: s.smtpPassword || undefined,
     };
+  }
+
+  async createSettings(settingsData: InsertSettings): Promise<Settings> {
+    const result = await db.insert(settings).values(settingsData).returning();
+    return result[0];
   }
 }
 

@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import Papa from "papaparse";
 import { storage } from "./storage";
-import { insertProductSchema, insertCsvUploadSchema, insertSettingsSchema } from "@shared/schema";
+import { insertProductSchema, insertCsvUploadSchema, insertSettingsSchema, insertSellerSchema } from "@shared/schema";
 
 // Configure multer for CSV file uploads
 const upload = multer({
@@ -335,10 +335,57 @@ async function getOrCreateDefaultSeller() {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Get all products
+  // Get all sellers
+  app.get("/api/sellers", async (req, res) => {
+    try {
+      const sellers = await storage.getAllSellers();
+      res.json(sellers);
+    } catch (error) {
+      console.error("Error fetching sellers:", error);
+      res.status(500).json({ error: "Failed to fetch sellers" });
+    }
+  });
+
+  // Create new seller
+  app.post("/api/sellers", async (req, res) => {
+    try {
+      const sellerData = insertSellerSchema.parse(req.body);
+      const seller = await storage.createSeller(sellerData);
+      
+      // Create default settings for new seller
+      await storage.createSettings({
+        sellerId: seller.id,
+        globalLowStockThreshold: 10,
+        emailNotifications: false,
+        autoReconcile: true,
+      });
+      
+      res.json(seller);
+    } catch (error) {
+      console.error("Error creating seller:", error);
+      if (error instanceof Error && 'issues' in error) {
+        res.status(400).json({ error: "Invalid seller data", details: error.message });
+      } else {
+        res.status(500).json({ error: "Failed to create seller" });
+      }
+    }
+  });
+
+  // Get all products (with optional seller filter)
   app.get("/api/products", async (req, res) => {
     try {
-      const seller = await getOrCreateDefaultSeller();
+      const sellerId = req.query.sellerId as string;
+      let seller;
+      
+      if (sellerId) {
+        seller = await storage.getSellerById(sellerId);
+        if (!seller) {
+          return res.status(404).json({ error: "Seller not found" });
+        }
+      } else {
+        seller = await getOrCreateDefaultSeller();
+      }
+      
       const products = await storage.getProductsBySellerId(seller.id);
       res.json(products);
     } catch (error) {
@@ -470,10 +517,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get settings
+  // Get settings (with optional seller filter)
   app.get("/api/settings", async (req, res) => {
     try {
-      const seller = await getOrCreateDefaultSeller();
+      const sellerId = req.query.sellerId as string;
+      let seller;
+      
+      if (sellerId) {
+        seller = await storage.getSellerById(sellerId);
+        if (!seller) {
+          return res.status(404).json({ error: "Seller not found" });
+        }
+      } else {
+        seller = await getOrCreateDefaultSeller();
+      }
+      
       const settings = await storage.getSettingsBySellerId(seller.id);
       res.json(settings);
     } catch (error) {

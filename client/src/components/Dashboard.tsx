@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
-import { Upload, BarChart3, Settings as SettingsIcon, Package } from "lucide-react";
+import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardStats } from "./DashboardStats";
 import { InventoryTable } from "./InventoryTable";
 import { FileUploadZone } from "./FileUploadZone";
 import { SettingsPanel } from "./SettingsPanel";
 import { ThemeToggle } from "./ThemeToggle";
-import { Product, Settings } from "@shared/schema";
+import { TenantSelector } from "./TenantSelector";
+import { Product, Settings, Seller } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
 export function Dashboard() {
@@ -16,13 +17,16 @@ export function Dashboard() {
     emailNotifications: false,
     autoReconcile: true,
   });
+  const [currentSeller, setCurrentSeller] = useState<Seller | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   // Fetch products from API
   const fetchProducts = async () => {
+    if (!currentSeller) return;
+    
     try {
-      const response = await fetch('/api/products');
+      const response = await fetch(`/api/products?sellerId=${currentSeller.id}`);
       if (response.ok) {
         const data = await response.json();
         setProducts(data);
@@ -39,8 +43,10 @@ export function Dashboard() {
 
   // Fetch settings from API
   const fetchSettings = async () => {
+    if (!currentSeller) return;
+    
     try {
-      const response = await fetch('/api/settings');
+      const response = await fetch(`/api/settings?sellerId=${currentSeller.id}`);
       if (response.ok) {
         const data = await response.json();
         setSettings(data);
@@ -55,15 +61,17 @@ export function Dashboard() {
     }
   };
 
-  // Load initial data
+  // Load initial data when tenant changes
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      await Promise.all([fetchProducts(), fetchSettings()]);
-      setIsLoading(false);
-    };
-    loadData();
-  }, []);
+    if (currentSeller) {
+      const loadData = async () => {
+        setIsLoading(true);
+        await Promise.all([fetchProducts(), fetchSettings()]);
+        setIsLoading(false);
+      };
+      loadData();
+    }
+  }, [currentSeller]);
 
   const handleFileUpload = async (result: { success: boolean; message: string }) => {
     if (result.success) {
@@ -155,8 +163,20 @@ export function Dashboard() {
       </header>
 
       <main className="container mx-auto px-6 py-8">
-        <Tabs defaultValue="dashboard" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-4">
+        <TenantSelector 
+          currentSeller={currentSeller}
+          onSellerChange={setCurrentSeller}
+        />
+        
+        {!currentSeller ? (
+          <div className="text-center py-12">
+            <Building2 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No Tenant Selected</h3>
+            <p className="text-muted-foreground">Please select or create a tenant to manage inventory.</p>
+          </div>
+        ) : (
+          <Tabs defaultValue="dashboard" className="space-y-6">
+          <TabsList className="grid w-full max-w-2xl grid-cols-5">
             <TabsTrigger value="dashboard" data-testid="tab-dashboard">
               <BarChart3 className="h-4 w-4 mr-2" />
               Dashboard
@@ -168,6 +188,10 @@ export function Dashboard() {
             <TabsTrigger value="inventory" data-testid="tab-inventory">
               <Package className="h-4 w-4 mr-2" />
               Inventory
+            </TabsTrigger>
+            <TabsTrigger value="tenants" data-testid="tab-tenants">
+              <Building2 className="h-4 w-4 mr-2" />
+              Tenants
             </TabsTrigger>
             <TabsTrigger value="settings" data-testid="tab-settings">
               <SettingsIcon className="h-4 w-4 mr-2" />
@@ -256,6 +280,19 @@ export function Dashboard() {
             <InventoryTable products={products} onExport={handleExport} />
           </TabsContent>
 
+          <TabsContent value="tenants" className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Tenant Management</h2>
+              <p className="text-muted-foreground">
+                Manage multiple business accounts and switch between different inventory contexts.
+              </p>
+            </div>
+            <TenantSelector 
+              currentSeller={currentSeller}
+              onSellerChange={setCurrentSeller}
+            />
+          </TabsContent>
+
           <TabsContent value="settings" className="space-y-6">
             <div>
               <h2 className="text-2xl font-bold mb-2">Settings</h2>
@@ -266,6 +303,7 @@ export function Dashboard() {
             <SettingsPanel settings={settings} onSettingsChange={handleSettingsChange} />
           </TabsContent>
         </Tabs>
+        )}
       </main>
     </div>
   );
