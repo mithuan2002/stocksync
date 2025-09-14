@@ -1,3 +1,4 @@
+
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
@@ -20,7 +21,7 @@ const upload = multer({
   },
 });
 
-// CSV parsing utility function
+// Enhanced CSV parsing utility functions
 interface ParsedRow {
   sku?: string;
   productName?: string;
@@ -28,58 +29,189 @@ interface ParsedRow {
   [key: string]: any;
 }
 
-function detectCSVFormat(headers: string[]): 'amazon' | 'shopify' | 'generic' {
+interface DetectedFormat {
+  format: 'amazon' | 'shopify' | 'generic';
+  channel: 'Amazon' | 'Shopify';
+  confidence: number;
+  mappings: {
+    sku: string;
+    productName: string;
+    quantity: string;
+  };
+}
+
+function intelligentFormatDetection(headers: string[]): DetectedFormat {
   const headerStr = headers.join(',').toLowerCase();
-  console.log('Detecting CSV format from headers:', headers);
+  console.log('Analyzing headers for intelligent detection:', headers);
   
-  // Amazon format detection - check for specific Amazon headers
-  if (headerStr.includes('fulfillment channel') || headerStr.includes('open orders') ||
-      (headerStr.includes('sku') && headerStr.includes('product name') && !headerStr.includes('variant'))) {
-    console.log('Detected Amazon format');
-    return 'amazon';
+  // Define format signatures with confidence scoring
+  const formatSignatures = {
+    amazon: {
+      required: ['sku', 'product name', 'quantity'],
+      optional: ['fulfillment channel', 'open orders', 'asin'],
+      indicators: ['fulfillment', 'asin', 'fnsku'],
+      baseConfidence: 0.9
+    },
+    shopify: {
+      required: ['variant sku', 'title', 'variant inventory qty'],
+      optional: ['handle', 'option1 name', 'variant price'],
+      indicators: ['variant', 'handle', 'option'],
+      baseConfidence: 0.9
+    }
+  };
+
+  let bestMatch: DetectedFormat = {
+    format: 'generic',
+    channel: 'Amazon',
+    confidence: 0.3,
+    mappings: { sku: '', productName: '', quantity: '' }
+  };
+
+  // Check Amazon format
+  let amazonScore = 0;
+  let amazonMappings = { sku: '', productName: '', quantity: '' };
+
+  for (const header of headers) {
+    const normalized = header.toLowerCase().trim();
+    
+    // Direct matches
+    if (normalized === 'sku') {
+      amazonScore += 0.3;
+      amazonMappings.sku = header;
+    }
+    if (normalized === 'product name') {
+      amazonScore += 0.3;
+      amazonMappings.productName = header;
+    }
+    if (normalized === 'quantity') {
+      amazonScore += 0.3;
+      amazonMappings.quantity = header;
+    }
+    
+    // Indicator bonuses
+    if (formatSignatures.amazon.indicators.some(ind => normalized.includes(ind))) {
+      amazonScore += 0.1;
+    }
   }
-  
-  // Shopify format detection - check for specific Shopify headers
-  if (headerStr.includes('handle') || headerStr.includes('variant sku') || headerStr.includes('variant inventory qty')) {
-    console.log('Detected Shopify format');
-    return 'shopify';
+
+  if (amazonScore > bestMatch.confidence) {
+    bestMatch = {
+      format: 'amazon',
+      channel: 'Amazon',
+      confidence: amazonScore,
+      mappings: amazonMappings
+    };
   }
-  
-  console.log('Detected generic format');
-  return 'generic';
+
+  // Check Shopify format
+  let shopifyScore = 0;
+  let shopifyMappings = { sku: '', productName: '', quantity: '' };
+
+  for (const header of headers) {
+    const normalized = header.toLowerCase().trim();
+    
+    // Direct matches
+    if (normalized === 'variant sku') {
+      shopifyScore += 0.3;
+      shopifyMappings.sku = header;
+    }
+    if (normalized === 'title') {
+      shopifyScore += 0.3;
+      shopifyMappings.productName = header;
+    }
+    if (normalized === 'variant inventory qty') {
+      shopifyScore += 0.3;
+      shopifyMappings.quantity = header;
+    }
+    
+    // Indicator bonuses
+    if (formatSignatures.shopify.indicators.some(ind => normalized.includes(ind))) {
+      shopifyScore += 0.1;
+    }
+  }
+
+  if (shopifyScore > bestMatch.confidence) {
+    bestMatch = {
+      format: 'shopify',
+      channel: 'Shopify',
+      confidence: shopifyScore,
+      mappings: shopifyMappings
+    };
+  }
+
+  // Fallback to intelligent generic matching if no strong match
+  if (bestMatch.confidence < 0.7) {
+    console.log('Falling back to intelligent generic matching');
+    const genericMappings = smartColumnMapping(headers);
+    bestMatch = {
+      format: 'generic',
+      channel: guessChannelFromFilename('') || 'Amazon',
+      confidence: 0.6,
+      mappings: genericMappings
+    };
+  }
+
+  console.log('Detection result:', bestMatch);
+  return bestMatch;
 }
 
-function transformHeadersForFormat(header: string, format: 'amazon' | 'shopify' | 'generic'): string {
-  const normalized = header.toLowerCase().trim();
+function smartColumnMapping(headers: string[]): { sku: string; productName: string; quantity: string } {
+  const mappings = { sku: '', productName: '', quantity: '' };
   
-  switch (format) {
-    case 'amazon':
-      if (normalized === 'sku') return 'sku';
-      if (normalized === 'product name') return 'productName';
-      if (normalized === 'quantity') return 'quantity';
-      return header; // Keep original header if no match
-      
-    case 'shopify':
-      if (normalized === 'variant sku') return 'sku';
-      if (normalized === 'title') return 'productName';
-      if (normalized === 'variant inventory qty') return 'quantity';
-      return header; // Keep original header if no match
-      
-    case 'generic':
-      // Generic format with flexible matching
-      if (normalized.includes('sku') || normalized === 'id') return 'sku';
-      if (normalized.includes('name') || normalized.includes('title')) return 'productName';
-      if (normalized.includes('quantity') || normalized.includes('stock') || normalized.includes('inventory')) return 'quantity';
-      return header; // Keep original header if no match
+  for (const header of headers) {
+    const normalized = header.toLowerCase().trim();
+    
+    // SKU matching - flexible patterns
+    if (!mappings.sku && (
+      normalized.includes('sku') || 
+      normalized.includes('id') ||
+      normalized.includes('code') ||
+      normalized === 'item' ||
+      normalized.includes('product id')
+    )) {
+      mappings.sku = header;
+    }
+    
+    // Product name matching - flexible patterns
+    if (!mappings.productName && (
+      normalized.includes('name') ||
+      normalized.includes('title') ||
+      normalized.includes('product') ||
+      normalized.includes('item name') ||
+      normalized.includes('description')
+    )) {
+      mappings.productName = header;
+    }
+    
+    // Quantity matching - flexible patterns
+    if (!mappings.quantity && (
+      normalized.includes('quantity') ||
+      normalized.includes('qty') ||
+      normalized.includes('stock') ||
+      normalized.includes('inventory') ||
+      normalized.includes('units') ||
+      normalized.includes('count') ||
+      normalized.includes('available')
+    )) {
+      mappings.quantity = header;
+    }
   }
   
-  return header;
+  console.log('Smart column mappings:', mappings);
+  return mappings;
 }
 
-function parseCSV(csvContent: string): ParsedRow[] {
-  console.log('Starting CSV parsing...');
+function guessChannelFromFilename(filename: string): 'Amazon' | 'Shopify' | null {
+  const lower = filename.toLowerCase();
+  if (lower.includes('amazon') || lower.includes('amz')) return 'Amazon';
+  if (lower.includes('shopify') || lower.includes('shop')) return 'Shopify';
+  return null;
+}
+
+function parseCSVIntelligently(csvContent: string, filename: string = ''): { data: ParsedRow[]; detectedFormat: DetectedFormat } {
+  console.log('Starting intelligent CSV parsing for:', filename);
   
-  // First pass to detect format
+  // First pass to detect headers
   const headerResult = Papa.parse(csvContent, {
     header: false,
     skipEmptyLines: true,
@@ -92,15 +224,25 @@ function parseCSV(csvContent: string): ParsedRow[] {
   }
 
   const headers = headerResult.data[0] as string[];
-  const format = detectCSVFormat(headers);
-  console.log('Original headers:', headers);
-  console.log('Detected format:', format);
+  
+  // Intelligent format detection
+  const detectedFormat = intelligentFormatDetection(headers);
+  
+  // Enhance channel detection with filename
+  if (detectedFormat.format === 'generic') {
+    const filenameChannel = guessChannelFromFilename(filename);
+    if (filenameChannel) {
+      detectedFormat.channel = filenameChannel;
+      detectedFormat.confidence += 0.2;
+    }
+  }
 
-  // Second pass with format-specific parsing
+  console.log('Final detection:', detectedFormat);
+
+  // Parse with detected mappings
   const result = Papa.parse(csvContent, {
     header: true,
     skipEmptyLines: true,
-    transformHeader: (header: string) => transformHeadersForFormat(header, format),
   });
 
   if (result.errors.length > 0) {
@@ -108,53 +250,48 @@ function parseCSV(csvContent: string): ParsedRow[] {
     throw new Error(`CSV parsing error: ${result.errors[0].message}`);
   }
 
-  const parsedData = result.data as ParsedRow[];
-  console.log('Raw parsed data (first 2 rows):', parsedData.slice(0, 2));
+  const parsedData = result.data as any[];
+  console.log('Raw parsed data sample:', parsedData.slice(0, 2));
   
-  // Additional validation and cleaning based on format
-  const validData = parsedData.filter(row => {
-    // Check for empty rows
-    if (!row || Object.keys(row).length === 0) {
-      return false;
+  // Transform data using detected mappings
+  const transformedData = parsedData.map(row => {
+    const transformed: ParsedRow = {};
+    
+    // Map using detected column mappings
+    if (detectedFormat.mappings.sku && row[detectedFormat.mappings.sku]) {
+      transformed.sku = String(row[detectedFormat.mappings.sku]).trim();
     }
     
-    // Ensure we have required fields
-    const hasSku = row.sku && String(row.sku).trim() !== '';
-    const hasName = row.productName && String(row.productName).trim() !== '';
-    const hasQuantity = row.quantity !== undefined && row.quantity !== null && String(row.quantity).trim() !== '';
-    
-    if (!hasSku || !hasName || !hasQuantity) {
-      console.log('Skipping row due to missing data:', {
-        sku: row.sku,
-        productName: row.productName,
-        quantity: row.quantity,
-        hasSku,
-        hasName,
-        hasQuantity
-      });
-      return false;
+    if (detectedFormat.mappings.productName && row[detectedFormat.mappings.productName]) {
+      transformed.productName = String(row[detectedFormat.mappings.productName]).trim();
     }
     
-    return true;
-  }).map(row => {
-    const quantity = parseInt(String(row.quantity)) || 0;
-    console.log('Processing row:', {
-      sku: row.sku,
-      productName: row.productName,
-      originalQuantity: row.quantity,
-      parsedQuantity: quantity
-    });
+    if (detectedFormat.mappings.quantity && row[detectedFormat.mappings.quantity]) {
+      transformed.quantity = String(row[detectedFormat.mappings.quantity]).trim();
+    }
     
-    return {
-      ...row,
-      sku: String(row.sku).trim(),
-      productName: String(row.productName).trim(),
-      quantity: String(quantity),
-    };
+    return transformed;
+  }).filter(row => {
+    // Validate required fields
+    const hasValidSku = row.sku && row.sku !== '';
+    const hasValidName = row.productName && row.productName !== '';
+    const hasValidQuantity = row.quantity && row.quantity !== '' && !isNaN(parseInt(row.quantity));
+    
+    const isValid = hasValidSku && hasValidName && hasValidQuantity;
+    
+    if (!isValid) {
+      console.log('Filtering out invalid row:', row);
+    }
+    
+    return isValid;
   });
 
-  console.log(`Parsed ${validData.length} valid rows from ${parsedData.length} total rows`);
-  return validData;
+  console.log(`Parsed ${transformedData.length} valid rows from ${parsedData.length} total rows`);
+  
+  return {
+    data: transformedData,
+    detectedFormat
+  };
 }
 
 // Inventory reconciliation logic
@@ -185,48 +322,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload and process CSV file
+  // Intelligent CSV upload and processing
   app.post("/api/upload", upload.single('csvFile'), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      if (!req.body.channel) {
-        return res.status(400).json({ error: "Channel is required" });
-      }
-
-      const channel = req.body.channel as "Amazon" | "Shopify";
       const csvContent = req.file.buffer.toString('utf-8');
+      const filename = req.file.originalname;
       
-      // Create upload record
-      const uploadRecord = await storage.createCsvUpload({
-        filename: req.file.originalname,
-        channel,
-        status: "processing",
-      });
+      console.log(`Processing file: ${filename}`);
 
       try {
-        // Parse CSV with enhanced format detection
-        const parsedData = parseCSV(csvContent);
+        // Intelligent parsing
+        const { data: parsedData, detectedFormat } = parseCSVIntelligently(csvContent, filename);
+        
+        // Create upload record with detected info
+        const uploadRecord = await storage.createCsvUpload({
+          filename: filename,
+          channel: detectedFormat.channel,
+          status: "processing",
+        });
+
         let processedCount = 0;
         let skippedCount = 0;
 
-        console.log(`Processing ${parsedData.length} rows from ${channel} CSV`);
+        console.log(`Processing ${parsedData.length} rows as ${detectedFormat.channel} (${detectedFormat.format} format, confidence: ${detectedFormat.confidence})`);
 
         // Process each row
         for (const row of parsedData) {
-          const quantity = parseInt(row.quantity) || 0;
+          const quantity = parseInt(row.quantity!) || 0;
           
-          console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units from ${channel})`);
+          console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units from ${detectedFormat.channel})`);
           
           // Check if product exists
-          const existingProduct = await storage.getProductBySku(row.sku);
+          const existingProduct = await storage.getProductBySku(row.sku!);
           
           if (existingProduct) {
             // Update existing product - keep other channels and update/add this channel
-            const updatedChannels = existingProduct.channels.filter(c => c.channel !== channel);
-            updatedChannels.push({ channel: channel, quantity });
+            const updatedChannels = existingProduct.channels.filter(c => c.channel !== detectedFormat.channel);
+            updatedChannels.push({ channel: detectedFormat.channel, quantity });
             
             const totalQuantity = updatedChannels.reduce((sum, c) => sum + c.quantity, 0);
             const settings = await storage.getSettings();
@@ -240,12 +376,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             // Create new product
             const settings = await storage.getSettings();
-            const channels = [{ channel: channel, quantity }];
+            const channels = [{ channel: detectedFormat.channel, quantity }];
             const isLowStock = quantity < settings.globalLowStockThreshold;
             
             await storage.createProduct({
-              sku: row.sku,
-              productName: row.productName,
+              sku: row.sku!,
+              productName: row.productName!,
               channels,
               totalQuantity: quantity,
               lowStockThreshold: settings.globalLowStockThreshold,
@@ -271,18 +407,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
           uploadId: uploadRecord.id,
           processedCount,
           skippedCount,
-          message: `Successfully processed ${processedCount} products from ${channel}${skippedCount > 0 ? ` (${skippedCount} rows skipped)` : ''}`,
+          detectedFormat: {
+            format: detectedFormat.format,
+            channel: detectedFormat.channel,
+            confidence: detectedFormat.confidence
+          },
+          message: `Successfully auto-parsed and processed ${processedCount} products as ${detectedFormat.channel} inventory (${detectedFormat.format} format detected with ${Math.round(detectedFormat.confidence * 100)}% confidence)`,
         });
 
       } catch (parseError) {
-        // Update upload record as error
-        await storage.updateCsvUpload(uploadRecord.id, {
-          status: "error",
-          errorMessage: parseError instanceof Error ? parseError.message : "Unknown error",
-        });
-
+        console.error('Parsing error:', parseError);
         res.status(400).json({
-          error: "CSV processing failed",
+          error: "CSV auto-parsing failed",
           details: parseError instanceof Error ? parseError.message : "Unknown error",
         });
       }

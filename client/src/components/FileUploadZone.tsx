@@ -1,9 +1,9 @@
+
 import { useState, useCallback } from "react";
-import { Upload, FileText, AlertCircle, CheckCircle } from "lucide-react";
+import { Upload, FileText, AlertCircle, CheckCircle, Brain } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 
 interface FileUploadZoneProps {
@@ -12,8 +12,16 @@ interface FileUploadZoneProps {
 
 export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [selectedChannel, setSelectedChannel] = useState<"Amazon" | "Shopify">("Amazon");
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; channel: string; status: string; message?: string }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ 
+    name: string; 
+    status: string; 
+    message?: string;
+    detectedFormat?: {
+      format: string;
+      channel: string;
+      confidence: number;
+    };
+  }>>([]);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
 
@@ -27,12 +35,11 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
     setIsDragOver(false);
   }, []);
 
-  const uploadFile = async (file: File, channel: "Amazon" | "Shopify") => {
+  const uploadFile = async (file: File) => {
     const formData = new FormData();
     formData.append('csvFile', file);
-    formData.append('channel', channel);
 
-    console.log(`Uploading ${file.name} for channel: ${selectedChannel}`);
+    console.log(`Auto-parsing and uploading ${file.name}`);
 
     try {
       setIsUploading(true);
@@ -48,12 +55,13 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
           prev.map(f => f.name === file.name ? { 
             ...f, 
             status: 'completed',
-            message: result.message 
+            message: result.message,
+            detectedFormat: result.detectedFormat
           } : f)
         );
 
         toast({
-          title: "Upload Successful",
+          title: "Auto-Parsing Successful",
           description: result.message,
         });
 
@@ -63,17 +71,17 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
           prev.map(f => f.name === file.name ? { 
             ...f, 
             status: 'error',
-            message: result.error || 'Upload failed' 
+            message: result.error || 'Auto-parsing failed' 
           } : f)
         );
 
         toast({
-          title: "Upload Failed",
-          description: result.error || 'Upload failed',
+          title: "Auto-Parsing Failed",
+          description: result.error || 'Auto-parsing failed',
           variant: "destructive",
         });
 
-        onFileUpload?.({ success: false, message: result.error || 'Upload failed' });
+        onFileUpload?.({ success: false, message: result.error || 'Auto-parsing failed' });
       }
     } catch (error) {
       console.error('Upload error:', error);
@@ -106,8 +114,8 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
     const files = Array.from(e.dataTransfer.files);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
-        setUploadedFiles(prev => [...prev, { name: file.name, channel: selectedChannel, status: 'processing' }]);
-        uploadFile(file, selectedChannel);
+        setUploadedFiles(prev => [...prev, { name: file.name, status: 'processing' }]);
+        uploadFile(file);
       } else {
         toast({
           title: "Invalid File",
@@ -116,7 +124,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
         });
       }
     });
-  }, [selectedChannel, isUploading]);
+  }, [isUploading]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (isUploading) return;
@@ -124,8 +132,8 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
     const files = Array.from(e.target.files || []);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
-        setUploadedFiles(prev => [...prev, { name: file.name, channel: selectedChannel, status: 'processing' }]);
-        uploadFile(file, selectedChannel);
+        setUploadedFiles(prev => [...prev, { name: file.name, status: 'processing' }]);
+        uploadFile(file);
       } else {
         toast({
           title: "Invalid File",
@@ -137,25 +145,10 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
 
     // Reset the input
     e.target.value = '';
-  }, [selectedChannel, isUploading]);
+  }, [isUploading]);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4">
-        <div className="flex-1">
-          <label className="text-sm font-medium">Select Channel:</label>
-          <Select value={selectedChannel} onValueChange={(value) => setSelectedChannel(value as "Amazon" | "Shopify")}>
-            <SelectTrigger data-testid="select-channel">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Amazon">Amazon</SelectItem>
-              <SelectItem value="Shopify">Shopify</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
       <Card 
         className={`border-2 border-dashed transition-colors ${
           isDragOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
@@ -165,10 +158,13 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
         onDrop={handleDrop}
       >
         <div className="p-8 text-center">
-          <Upload className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-          <h3 className="text-lg font-semibold mb-2">Upload CSV Files</h3>
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <Brain className="h-12 w-12 text-primary" />
+            <Upload className="h-12 w-12 text-muted-foreground" />
+          </div>
+          <h3 className="text-lg font-semibold mb-2">Intelligent CSV Auto-Parser</h3>
           <p className="text-muted-foreground mb-4">
-            Drag and drop your {selectedChannel} inventory CSV files here, or click to browse
+            Drop any inventory CSV file here - our AI will automatically detect the format and channel
           </p>
           <input
             type="file"
@@ -181,48 +177,70 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
           />
           <Button disabled={isUploading}>
             <label htmlFor="file-upload" className="cursor-pointer" data-testid="button-browse-files">
-              {isUploading ? 'Uploading...' : 'Browse Files'}
+              {isUploading ? 'Auto-Parsing...' : 'Browse Files'}
             </label>
           </Button>
           <div className="mt-4 text-xs text-muted-foreground">
-            Supported formats: CSV files with SKU, Product Name, and Quantity columns
+            <div className="space-y-1">
+              <div>✅ Auto-detects Amazon, Shopify, or any generic inventory format</div>
+              <div>✅ Intelligently maps columns like SKU, Product Name, Quantity</div>
+              <div>✅ No manual configuration required</div>
+            </div>
           </div>
         </div>
       </Card>
 
       {uploadedFiles.length > 0 && (
         <Card className="p-4">
-          <h4 className="font-semibold mb-3">Recent Uploads</h4>
-          <div className="space-y-2">
+          <h4 className="font-semibold mb-3">Processing History</h4>
+          <div className="space-y-3">
             {uploadedFiles.map((file, index) => (
-              <div key={index} className="flex items-center justify-between p-2 bg-muted/50 rounded">
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  <span className="text-sm font-medium">{file.name}</span>
-                  <Badge variant="outline">{file.channel}</Badge>
+              <div key={index} className="p-3 bg-muted/50 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    <span className="text-sm font-medium">{file.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {file.status === 'processing' && (
+                      <div className="flex items-center gap-1 text-yellow-600">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-xs">Auto-parsing...</span>
+                      </div>
+                    )}
+                    {file.status === 'completed' && (
+                      <div className="flex items-center gap-1 text-green-600">
+                        <CheckCircle className="h-4 w-4" />
+                        <span className="text-xs">Completed</span>
+                      </div>
+                    )}
+                    {file.status === 'error' && (
+                      <div className="flex items-center gap-1 text-red-600">
+                        <AlertCircle className="h-4 w-4" />
+                        <span className="text-xs">Error</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {file.status === 'processing' && (
-                    <div className="flex items-center gap-1 text-yellow-600">
-                      <AlertCircle className="h-4 w-4" />
-                      <span className="text-xs">Processing...</span>
-                    </div>
-                  )}
-                  {file.status === 'completed' && (
-                    <div className="flex items-center gap-1 text-green-600">
-                      <CheckCircle className="h-4 w-4" />
-                      <span className="text-xs">Completed</span>
-                    </div>
-                  )}
-                  {file.status === 'error' && (
-                    <div className="flex items-center gap-1 text-red-600">
-                      <AlertCircle className="h-4 w-4" />
-                      <span className="text-xs">Error</span>
-                    </div>
-                  )}
-                </div>
+                
+                {file.detectedFormat && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <Badge variant="outline" className="bg-blue-50 border-blue-200">
+                      {file.detectedFormat.format.toUpperCase()} Format
+                    </Badge>
+                    <Badge variant="outline" className="bg-green-50 border-green-200">
+                      {file.detectedFormat.channel}
+                    </Badge>
+                    <span className="text-muted-foreground">
+                      {Math.round(file.detectedFormat.confidence * 100)}% confidence
+                    </span>
+                  </div>
+                )}
+                
                 {file.message && (
-                  <div className="text-xs text-muted-foreground mt-1">{file.message}</div>
+                  <div className="text-xs text-muted-foreground bg-background/50 p-2 rounded">
+                    {file.message}
+                  </div>
                 )}
               </div>
             ))}
