@@ -32,7 +32,7 @@ function parseCSV(csvContent: string): ParsedRow[] {
   const result = Papa.parse(csvContent, {
     header: true,
     skipEmptyLines: true,
-    transformHeader: (header) => {
+    transformHeader: (header: string) => {
       // Normalize common header variations
       const normalized = header.toLowerCase().trim();
       if (normalized.includes('sku') || normalized.includes('id')) return 'sku';
@@ -150,7 +150,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Update upload record as completed
         await storage.updateCsvUpload(uploadRecord.id, {
           status: "completed",
-          processedAt: new Date(),
           productsCount: processedCount,
         });
 

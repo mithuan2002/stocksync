@@ -1,8 +1,8 @@
 import { FileUploadZone } from '../FileUploadZone';
 
 export default function FileUploadZoneExample() {
-  const handleFileUpload = (file: File, channel: "Amazon" | "Shopify") => {
-    console.log('File uploaded:', file.name, 'Channel:', channel);
+  const handleFileUpload = (result: { success: boolean; message: string }) => {
+    console.log('Upload result:', result);
   };
 
   return <FileUploadZone onFileUpload={handleFileUpload} />;

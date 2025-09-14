@@ -4,15 +4,18 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 
 interface FileUploadZoneProps {
-  onFileUpload: (file: File, channel: "Amazon" | "Shopify") => void;
+  onFileUpload?: (result: { success: boolean; message: string }) => void;
 }
 
 export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<"Amazon" | "Shopify">("Amazon");
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; channel: string; status: string }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; channel: string; status: string; message?: string }>>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const { toast } = useToast();
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -24,42 +27,115 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
     setIsDragOver(false);
   }, []);
 
+  const uploadFile = async (file: File, channel: "Amazon" | "Shopify") => {
+    const formData = new FormData();
+    formData.append('csvFile', file);
+    formData.append('channel', channel);
+
+    try {
+      setIsUploading(true);
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setUploadedFiles(prev => 
+          prev.map(f => f.name === file.name ? { 
+            ...f, 
+            status: 'completed',
+            message: result.message 
+          } : f)
+        );
+        
+        toast({
+          title: "Upload Successful",
+          description: result.message,
+        });
+
+        onFileUpload?.({ success: true, message: result.message });
+      } else {
+        setUploadedFiles(prev => 
+          prev.map(f => f.name === file.name ? { 
+            ...f, 
+            status: 'error',
+            message: result.error || 'Upload failed' 
+          } : f)
+        );
+        
+        toast({
+          title: "Upload Failed",
+          description: result.error || 'Upload failed',
+          variant: "destructive",
+        });
+
+        onFileUpload?.({ success: false, message: result.error || 'Upload failed' });
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      setUploadedFiles(prev => 
+        prev.map(f => f.name === file.name ? { 
+          ...f, 
+          status: 'error',
+          message: 'Network error' 
+        } : f)
+      );
+      
+      toast({
+        title: "Upload Failed",
+        description: 'Network error occurred',
+        variant: "destructive",
+      });
+
+      onFileUpload?.({ success: false, message: 'Network error occurred' });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
     
+    if (isUploading) return;
+    
     const files = Array.from(e.dataTransfer.files);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
-        onFileUpload(file, selectedChannel);
         setUploadedFiles(prev => [...prev, { name: file.name, channel: selectedChannel, status: 'processing' }]);
-        
-        // Simulate processing
-        setTimeout(() => {
-          setUploadedFiles(prev => 
-            prev.map(f => f.name === file.name ? { ...f, status: 'completed' } : f)
-          );
-        }, 2000);
+        uploadFile(file, selectedChannel);
+      } else {
+        toast({
+          title: "Invalid File",
+          description: "Please upload only CSV files",
+          variant: "destructive",
+        });
       }
     });
-  }, [selectedChannel, onFileUpload]);
+  }, [selectedChannel, isUploading]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isUploading) return;
+    
     const files = Array.from(e.target.files || []);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
-        onFileUpload(file, selectedChannel);
         setUploadedFiles(prev => [...prev, { name: file.name, channel: selectedChannel, status: 'processing' }]);
-        
-        // Simulate processing
-        setTimeout(() => {
-          setUploadedFiles(prev => 
-            prev.map(f => f.name === file.name ? { ...f, status: 'completed' } : f)
-          );
-        }, 2000);
+        uploadFile(file, selectedChannel);
+      } else {
+        toast({
+          title: "Invalid File",
+          description: "Please upload only CSV files",
+          variant: "destructive",
+        });
       }
     });
-  }, [selectedChannel, onFileUpload]);
+    
+    // Reset the input
+    e.target.value = '';
+  }, [selectedChannel, isUploading]);
 
   return (
     <div className="space-y-4">
@@ -101,9 +177,9 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
             id="file-upload"
             data-testid="input-file-upload"
           />
-          <Button asChild>
+          <Button disabled={isUploading}>
             <label htmlFor="file-upload" className="cursor-pointer" data-testid="button-browse-files">
-              Browse Files
+              {isUploading ? 'Uploading...' : 'Browse Files'}
             </label>
           </Button>
           <div className="mt-4 text-xs text-muted-foreground">
@@ -136,7 +212,16 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
                       <span className="text-xs">Completed</span>
                     </div>
                   )}
+                  {file.status === 'error' && (
+                    <div className="flex items-center gap-1 text-red-600">
+                      <AlertCircle className="h-4 w-4" />
+                      <span className="text-xs">Error</span>
+                    </div>
+                  )}
                 </div>
+                {file.message && (
+                  <div className="text-xs text-muted-foreground mt-1">{file.message}</div>
+                )}
               </div>
             ))}
           </div>

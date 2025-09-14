@@ -67,10 +67,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {
-    const result = await db.insert(products).values({
-      ...product,
-      id: randomUUID(),
-    }).returning();
+    const result = await db.insert(products).values(product).returning();
     
     const p = result[0];
     return {
@@ -86,7 +83,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product> {
     const result = await db.update(products)
-      .set({ ...product, updatedAt: new Date() })
+      .set(product)
       .where(eq(products.id, id))
       .returning();
     
@@ -217,9 +214,9 @@ export class DatabaseStorage implements IStorage {
     }
     
     return {
-      globalLowStockThreshold: newSettings.globalLowStockThreshold,
-      emailNotifications: newSettings.emailNotifications,
-      autoReconcile: newSettings.autoReconcile,
+      globalLowStockThreshold: newSettings.globalLowStockThreshold || 10,
+      emailNotifications: newSettings.emailNotifications || false,
+      autoReconcile: newSettings.autoReconcile || true,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Upload, BarChart3, Settings as SettingsIcon, Package } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardStats } from "./DashboardStats";
@@ -7,118 +7,132 @@ import { FileUploadZone } from "./FileUploadZone";
 import { SettingsPanel } from "./SettingsPanel";
 import { ThemeToggle } from "./ThemeToggle";
 import { Product, Settings } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
 
 export function Dashboard() {
-  // todo: remove mock functionality - sample data for demonstration
-  const [products, setProducts] = useState<Product[]>([
-    {
-      id: '1',
-      sku: 'WH-001',
-      productName: 'Wireless Headphones Pro',
-      channels: [
-        { channel: 'Amazon', quantity: 25 },
-        { channel: 'Shopify', quantity: 15 }
-      ],
-      totalQuantity: 40,
-      lowStockThreshold: 20,
-      isLowStock: false
-    },
-    {
-      id: '2',
-      sku: 'SC-002',
-      productName: 'Smartphone Case Premium',
-      channels: [
-        { channel: 'Amazon', quantity: 5 },
-        { channel: 'Shopify', quantity: 3 }
-      ],
-      totalQuantity: 8,
-      lowStockThreshold: 15,
-      isLowStock: true
-    },
-    {
-      id: '3',
-      sku: 'BT-003',
-      productName: 'Bluetooth Speaker Mini',
-      channels: [
-        { channel: 'Amazon', quantity: 50 },
-        { channel: 'Shopify', quantity: 30 }
-      ],
-      totalQuantity: 80,
-      lowStockThreshold: 25,
-      isLowStock: false
-    },
-    {
-      id: '4',
-      sku: 'UC-004',
-      productName: 'USB-C Cable 6ft',
-      channels: [
-        { channel: 'Amazon', quantity: 2 },
-        { channel: 'Shopify', quantity: 1 }
-      ],
-      totalQuantity: 3,
-      lowStockThreshold: 10,
-      isLowStock: true
-    },
-    {
-      id: '5',
-      sku: 'PM-005',
-      productName: 'Phone Mount Car',
-      channels: [
-        { channel: 'Amazon', quantity: 18 },
-        { channel: 'Shopify', quantity: 12 }
-      ],
-      totalQuantity: 30,
-      lowStockThreshold: 15,
-      isLowStock: false
-    }
-  ]);
-
+  const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<Settings>({
     globalLowStockThreshold: 10,
-    emailNotifications: true,
-    autoReconcile: true
+    emailNotifications: false,
+    autoReconcile: true,
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
-  const handleFileUpload = (file: File, channel: "Amazon" | "Shopify") => {
-    console.log('Processing file upload:', file.name, 'for channel:', channel);
-    // todo: remove mock functionality - simulate processing a CSV file
-    // In real implementation, this would parse CSV and update products
+  // Fetch products from API
+  const fetchProducts = async () => {
+    try {
+      const response = await fetch('/api/products');
+      if (response.ok) {
+        const data = await response.json();
+        setProducts(data);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load products",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleExport = () => {
-    console.log('Exporting inventory report...');
-    // todo: remove mock functionality - generate CSV export
-    const csvContent = [
-      ['SKU', 'Product Name', 'Amazon Qty', 'Shopify Qty', 'Total Qty', 'Status'],
-      ...products.map(p => [
-        p.sku,
-        p.productName,
-        p.channels.find(c => c.channel === 'Amazon')?.quantity || 0,
-        p.channels.find(c => c.channel === 'Shopify')?.quantity || 0,
-        p.totalQuantity,
-        p.isLowStock ? 'Low Stock' : 'In Stock'
-      ])
-    ].map(row => row.join(',')).join('\\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'inventory-report.csv';
-    a.click();
-    window.URL.revokeObjectURL(url);
+  // Fetch settings from API
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch('/api/settings');
+      if (response.ok) {
+        const data = await response.json();
+        setSettings(data);
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load settings",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleSettingsChange = (newSettings: Settings) => {
-    setSettings(newSettings);
-    // todo: remove mock functionality - update products with new threshold
-    setProducts(prevProducts => 
-      prevProducts.map(product => ({
-        ...product,
-        lowStockThreshold: newSettings.globalLowStockThreshold,
-        isLowStock: product.totalQuantity < newSettings.globalLowStockThreshold
-      }))
-    );
+  // Load initial data
+  useEffect(() => {
+    const loadData = async () => {
+      setIsLoading(true);
+      await Promise.all([fetchProducts(), fetchSettings()]);
+      setIsLoading(false);
+    };
+    loadData();
+  }, []);
+
+  const handleFileUpload = async (result: { success: boolean; message: string }) => {
+    if (result.success) {
+      // Refresh products after successful upload
+      await fetchProducts();
+    }
+  };
+
+  const handleExport = async () => {
+    try {
+      const response = await fetch('/api/export');
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'inventory-report.csv';
+        a.click();
+        window.URL.revokeObjectURL(url);
+        
+        toast({
+          title: "Export Successful",
+          description: "Inventory report downloaded successfully",
+        });
+      } else {
+        throw new Error('Export failed');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: "Export Failed",
+        description: "Failed to export inventory report",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSettingsChange = async (newSettings: Settings) => {
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newSettings),
+      });
+
+      if (response.ok) {
+        const updatedSettings = await response.json();
+        setSettings(updatedSettings);
+        
+        // Refresh products to reflect new threshold calculations
+        await fetchProducts();
+        
+        toast({
+          title: "Settings Updated",
+          description: "Your preferences have been saved successfully",
+        });
+      } else {
+        throw new Error('Settings update failed');
+      }
+    } catch (error) {
+      console.error('Settings update error:', error);
+      toast({
+        title: "Update Failed",
+        description: "Failed to update settings",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
