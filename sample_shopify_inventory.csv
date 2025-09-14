@@ -1,0 +1,7 @@
+
+Handle,Title,Option1 Name,Option1 Value,Variant SKU,Variant Inventory Qty,Variant Price
+tshirt-red,T-Shirt Red,Size,M,SKU001,5,20
+jeans-blue,Jeans Blue,Size,32,SKU002,3,40
+cap-black,Cap Black,Size,One Size,SKU003,2,10
+sneakers-white,Sneakers White,Size,9,SKU004,8,60
+hoodie-grey,Hoodie Grey,Size,L,SKU005,1,30

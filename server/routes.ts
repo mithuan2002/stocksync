@@ -28,25 +28,90 @@ interface ParsedRow {
   [key: string]: any;
 }
 
-function parseCSV(csvContent: string): ParsedRow[] {
-  const result = Papa.parse(csvContent, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (header: string) => {
-      // Normalize common header variations
-      const normalized = header.toLowerCase().trim();
+function detectCSVFormat(headers: string[]): 'amazon' | 'shopify' | 'generic' {
+  const headerStr = headers.join(',').toLowerCase();
+  
+  // Amazon format detection
+  if (headerStr.includes('fulfillment channel') || 
+      (headerStr.includes('sku') && headerStr.includes('product name') && headerStr.includes('quantity'))) {
+    return 'amazon';
+  }
+  
+  // Shopify format detection
+  if (headerStr.includes('handle') && headerStr.includes('variant sku') && headerStr.includes('variant inventory qty')) {
+    return 'shopify';
+  }
+  
+  return 'generic';
+}
+
+function transformHeadersForFormat(header: string, format: 'amazon' | 'shopify' | 'generic'): string {
+  const normalized = header.toLowerCase().trim();
+  
+  switch (format) {
+    case 'amazon':
+      if (normalized === 'sku') return 'sku';
+      if (normalized === 'product name') return 'productName';
+      if (normalized === 'quantity') return 'quantity';
+      break;
+      
+    case 'shopify':
+      if (normalized === 'variant sku') return 'sku';
+      if (normalized === 'title') return 'productName';
+      if (normalized === 'variant inventory qty') return 'quantity';
+      break;
+      
+    case 'generic':
+      // Generic format with flexible matching
       if (normalized.includes('sku') || normalized.includes('id')) return 'sku';
       if (normalized.includes('name') || normalized.includes('title')) return 'productName';
       if (normalized.includes('quantity') || normalized.includes('stock') || normalized.includes('inventory')) return 'quantity';
-      return header;
-    },
+      break;
+  }
+  
+  return header;
+}
+
+function parseCSV(csvContent: string): ParsedRow[] {
+  // First pass to detect format
+  const headerResult = Papa.parse(csvContent, {
+    header: false,
+    skipEmptyLines: true,
+    preview: 1,
+  });
+
+  if (headerResult.errors.length > 0) {
+    throw new Error(`CSV parsing error: ${headerResult.errors[0].message}`);
+  }
+
+  const headers = headerResult.data[0] as string[];
+  const format = detectCSVFormat(headers);
+
+  // Second pass with format-specific parsing
+  const result = Papa.parse(csvContent, {
+    header: true,
+    skipEmptyLines: true,
+    transformHeader: (header: string) => transformHeadersForFormat(header, format),
   });
 
   if (result.errors.length > 0) {
     throw new Error(`CSV parsing error: ${result.errors[0].message}`);
   }
 
-  return result.data as ParsedRow[];
+  const parsedData = result.data as ParsedRow[];
+  
+  // Additional validation and cleaning based on format
+  return parsedData.filter(row => {
+    // Ensure we have required fields
+    const hasSku = row.sku && row.sku.trim() !== '';
+    const hasName = row.productName && row.productName.trim() !== '';
+    const hasQuantity = row.quantity !== undefined && row.quantity !== null && row.quantity !== '';
+    
+    return hasSku && hasName && hasQuantity;
+  }).map(row => ({
+    ...row,
+    quantity: String(parseInt(row.quantity || '0') || 0), // Ensure quantity is a valid number string
+  }));
 }
 
 // Inventory reconciliation logic
@@ -99,17 +164,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       try {
-        // Parse CSV
+        // Parse CSV with enhanced format detection
         const parsedData = parseCSV(csvContent);
         let processedCount = 0;
+        let skippedCount = 0;
+
+        console.log(`Processing ${parsedData.length} rows from ${channel} CSV`);
 
         // Process each row
         for (const row of parsedData) {
-          if (!row.sku || !row.productName || !row.quantity) {
-            continue; // Skip incomplete rows
+          if (!row.sku || !row.productName || row.quantity === undefined) {
+            skippedCount++;
+            console.log(`Skipping incomplete row: SKU=${row.sku}, Name=${row.productName}, Qty=${row.quantity}`);
+            continue;
           }
 
           const quantity = parseInt(row.quantity) || 0;
+          
+          console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units)`)
           
           // Check if product exists
           const existingProduct = await storage.getProductBySku(row.sku);
@@ -161,7 +233,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           success: true,
           uploadId: uploadRecord.id,
           processedCount,
-          message: `Successfully processed ${processedCount} products from ${channel}`,
+          skippedCount,
+          message: `Successfully processed ${processedCount} products from ${channel}${skippedCount > 0 ? ` (${skippedCount} rows skipped)` : ''}`,
         });
 
       } catch (parseError) {
@@ -230,8 +303,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const products = await storage.getAllProducts();
       
-      // Generate CSV content
-      const headers = ['SKU', 'Product Name', 'Amazon Qty', 'Shopify Qty', 'Total Qty', 'Threshold', 'Status'];
+      // Generate CSV content matching the inventory overview table format
+      const headers = [
+        'SKU', 
+        'Product Name', 
+        'Amazon Quantity', 
+        'Shopify Quantity', 
+        'Total Quantity', 
+        'Low Stock Threshold', 
+        'Stock Status (Low Stock/In Stock)'
+      ];
       const csvRows = [headers];
       
       products.forEach(product => {
