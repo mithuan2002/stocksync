@@ -12,7 +12,7 @@ import { TenantSelector } from "./TenantSelector";
 import { Product, Settings, Seller } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 
-export function Dashboard() {
+export default function Dashboard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [settings, setSettings] = useState<Settings>({
     globalLowStockThreshold: 10,
