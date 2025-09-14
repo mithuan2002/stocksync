@@ -101,7 +101,8 @@ export function InventoryTable({ products, onExport }: InventoryTableProps) {
               <tr className="border-b">
                 <th className="text-left p-4 font-semibold">Product</th>
                 <th className="text-left p-4 font-semibold">SKU</th>
-                <th className="text-left p-4 font-semibold">Channels</th>
+                <th className="text-left p-4 font-semibold">Amazon Quantity</th>
+                <th className="text-left p-4 font-semibold">Shopify Quantity</th>
                 <th className="text-left p-4 font-semibold">Total Quantity</th>
                 <th className="text-left p-4 font-semibold">Status</th>
               </tr>
@@ -130,15 +131,13 @@ export function InventoryTable({ products, onExport }: InventoryTableProps) {
                     </code>
                   </td>
                   <td className="p-4">
-                    <div className="space-y-1">
-                      {product.channels.map((channel, index) => (
-                        <div key={index} className="flex items-center justify-between bg-muted/50 rounded px-2 py-1">
-                          <Badge variant="outline" className="text-xs">{channel.channel}</Badge>
-                          <span className="font-mono text-sm" data-testid={`text-channel-quantity-${product.id}-${index}`}>
-                            {channel.quantity}
-                          </span>
-                        </div>
-                      ))}
+                    <div className="text-lg font-semibold font-mono" data-testid={`text-amazon-quantity-${product.id}`}>
+                      {product.channels.find(c => c.channel === 'Amazon')?.quantity || 0}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="text-lg font-semibold font-mono" data-testid={`text-shopify-quantity-${product.id}`}>
+                      {product.channels.find(c => c.channel === 'Shopify')?.quantity || 0}
                     </div>
                   </td>
                   <td className="p-4">
