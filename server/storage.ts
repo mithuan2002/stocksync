@@ -25,8 +25,23 @@ import {
   type Notification
 } from "@shared/schema";
 
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql);
+// Initialize database connection with fallback
+let db: any = null;
+let useDatabase = false;
+
+try {
+  if (process.env.DATABASE_URL) {
+    const sql = neon(process.env.DATABASE_URL);
+    db = drizzle(sql);
+    useDatabase = true;
+    console.log('Connected to Neon database');
+  } else {
+    console.log('No DATABASE_URL found, using in-memory storage');
+  }
+} catch (error) {
+  console.log('Database connection failed, falling back to in-memory storage:', error);
+  useDatabase = false;
+}
 
 export interface IStorage {
   // Sellers
@@ -70,6 +85,226 @@ export interface IStorage {
   getSettingsBySellerId(sellerId: string): Promise<Settings>;
   updateSettings(sellerId: string, newSettings: Partial<InsertSettings>): Promise<Settings>;
   createSettings(settingsData: InsertSettings): Promise<Settings>;
+}
+
+// In-memory storage fallback
+class InMemoryStorage implements IStorage {
+  private sellers: Map<string, Seller> = new Map();
+  private suppliers: Map<string, Supplier> = new Map();
+  private products: Map<string, Product> = new Map();
+  private csvUploads: Map<string, CsvUpload> = new Map();
+  private settingsMap: Map<string, Settings> = new Map();
+  private stockHistoryMap: Map<string, StockHistory[]> = new Map();
+  private notificationsMap: Map<string, Notification> = new Map();
+
+  private generateId(): string {
+    return Math.random().toString(36).substr(2, 9);
+  }
+
+  // Sellers
+  async getAllSellers(): Promise<Seller[]> {
+    return Array.from(this.sellers.values());
+  }
+
+  async getSellerById(id: string): Promise<Seller | undefined> {
+    return this.sellers.get(id);
+  }
+
+  async getSellerByEmail(email: string): Promise<Seller | undefined> {
+    return Array.from(this.sellers.values()).find(s => s.email === email);
+  }
+
+  async createSeller(seller: InsertSeller): Promise<Seller> {
+    const id = this.generateId();
+    const newSeller: Seller = {
+      id,
+      ...seller,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.sellers.set(id, newSeller);
+    return newSeller;
+  }
+
+  async updateSeller(id: string, seller: Partial<InsertSeller>): Promise<Seller> {
+    const existing = this.sellers.get(id);
+    if (!existing) throw new Error('Seller not found');
+    
+    const updated = { ...existing, ...seller, updatedAt: new Date().toISOString() };
+    this.sellers.set(id, updated);
+    return updated;
+  }
+
+  async deleteSeller(id: string): Promise<void> {
+    this.sellers.delete(id);
+  }
+
+  // Suppliers
+  async getSuppliersBySellerId(sellerId: string): Promise<Supplier[]> {
+    return Array.from(this.suppliers.values()).filter(s => s.sellerId === sellerId);
+  }
+
+  async getSupplierById(id: string): Promise<Supplier | undefined> {
+    return this.suppliers.get(id);
+  }
+
+  async createSupplier(supplier: InsertSupplier): Promise<Supplier> {
+    const id = this.generateId();
+    const newSupplier: Supplier = {
+      id,
+      ...supplier,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.suppliers.set(id, newSupplier);
+    return newSupplier;
+  }
+
+  async updateSupplier(id: string, supplier: Partial<InsertSupplier>): Promise<Supplier> {
+    const existing = this.suppliers.get(id);
+    if (!existing) throw new Error('Supplier not found');
+    
+    const updated = { ...existing, ...supplier, updatedAt: new Date().toISOString() };
+    this.suppliers.set(id, updated);
+    return updated;
+  }
+
+  async deleteSupplier(id: string): Promise<void> {
+    this.suppliers.delete(id);
+  }
+
+  // Products
+  async getProductsBySellerId(sellerId: string): Promise<Product[]> {
+    return Array.from(this.products.values()).filter(p => p.sellerId === sellerId);
+  }
+
+  async getProductBySku(sellerId: string, sku: string): Promise<Product | undefined> {
+    return Array.from(this.products.values()).find(p => p.sellerId === sellerId && p.sku === sku);
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const id = this.generateId();
+    const newProduct: Product = {
+      id,
+      ...product,
+      notificationsSent: 0,
+    };
+    this.products.set(id, newProduct);
+    return newProduct;
+  }
+
+  async updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product> {
+    const existing = this.products.get(id);
+    if (!existing) throw new Error('Product not found');
+    
+    const updated = { ...existing, ...product };
+    this.products.set(id, updated);
+    return updated;
+  }
+
+  async deleteProduct(id: string): Promise<void> {
+    this.products.delete(id);
+  }
+
+  // CSV Uploads
+  async getCsvUploadsBySellerId(sellerId: string): Promise<CsvUpload[]> {
+    return Array.from(this.csvUploads.values()).filter(u => u.sellerId === sellerId);
+  }
+
+  async getCsvUpload(id: string): Promise<CsvUpload | undefined> {
+    return this.csvUploads.get(id);
+  }
+
+  async createCsvUpload(upload: InsertCsvUpload): Promise<CsvUpload> {
+    const id = this.generateId();
+    const newUpload: CsvUpload = {
+      id,
+      ...upload,
+      uploadedAt: new Date().toISOString(),
+    };
+    this.csvUploads.set(id, newUpload);
+    return newUpload;
+  }
+
+  async updateCsvUpload(id: string, upload: Partial<InsertCsvUpload>): Promise<CsvUpload> {
+    const existing = this.csvUploads.get(id);
+    if (!existing) throw new Error('Upload not found');
+    
+    const updated = { ...existing, ...upload };
+    this.csvUploads.set(id, updated);
+    return updated;
+  }
+
+  // Stock History
+  async getStockHistoryByProductId(productId: string, limit?: number): Promise<StockHistory[]> {
+    const history = this.stockHistoryMap.get(productId) || [];
+    return limit ? history.slice(0, limit) : history;
+  }
+
+  async createStockHistory(history: InsertStockHistory): Promise<StockHistory> {
+    const id = this.generateId();
+    const newHistory: StockHistory = {
+      id,
+      ...history,
+      recordedAt: new Date().toISOString(),
+    };
+    
+    const existing = this.stockHistoryMap.get(history.productId) || [];
+    existing.unshift(newHistory);
+    this.stockHistoryMap.set(history.productId, existing);
+    
+    return newHistory;
+  }
+
+  // Notifications
+  async getNotificationsBySellerId(sellerId: string): Promise<Notification[]> {
+    return Array.from(this.notificationsMap.values()).filter(n => n.sellerId === sellerId);
+  }
+
+  async createNotification(notification: InsertNotification): Promise<Notification> {
+    const id = this.generateId();
+    const newNotification: Notification = {
+      id,
+      ...notification,
+      sentAt: new Date().toISOString(),
+    };
+    this.notificationsMap.set(id, newNotification);
+    return newNotification;
+  }
+
+  async getNotificationsByProductId(productId: string): Promise<Notification[]> {
+    return Array.from(this.notificationsMap.values()).filter(n => n.productId === productId);
+  }
+
+  // Settings
+  async getSettingsBySellerId(sellerId: string): Promise<Settings> {
+    let settings = this.settingsMap.get(sellerId);
+    if (!settings) {
+      settings = {
+        id: this.generateId(),
+        sellerId,
+        globalLowStockThreshold: 10,
+        emailNotifications: false,
+        autoReconcile: true,
+      };
+      this.settingsMap.set(sellerId, settings);
+    }
+    return settings;
+  }
+
+  async updateSettings(sellerId: string, newSettings: Partial<InsertSettings>): Promise<Settings> {
+    const existing = await this.getSettingsBySellerId(sellerId);
+    const updated = { ...existing, ...newSettings };
+    this.settingsMap.set(sellerId, updated);
+    return updated;
+  }
+
+  async createSettings(settingsData: InsertSettings): Promise<Settings> {
+    const id = this.generateId();
+    const settings: Settings = { id, ...settingsData };
+    this.settingsMap.set(settingsData.sellerId, settings);
+    return settings;
+  }
 }
 
 export class DatabaseStorage implements IStorage {
@@ -555,4 +790,27 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-export const storage: IStorage = new DatabaseStorage();
+// Export the appropriate storage implementation
+export const storage: IStorage = useDatabase ? new DatabaseStorage() : new InMemoryStorage();
+
+console.log(`Using ${useDatabase ? 'database' : 'in-memory'} storage`);
+
+// Add test data for in-memory storage if needed
+if (!useDatabase) {
+  setTimeout(async () => {
+    // Create a default seller for testing
+    try {
+      let seller = await storage.getSellerByEmail('demo@seller.com');
+      if (!seller) {
+        seller = await storage.createSeller({
+          email: 'demo@seller.com',
+          name: 'Demo Seller',
+          companyName: 'Demo Company'
+        });
+        console.log('Created default seller for in-memory storage');
+      }
+    } catch (error) {
+      console.log('Error creating default seller:', error);
+    }
+  }, 100);
+}
