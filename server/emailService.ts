@@ -25,7 +25,7 @@ class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    this.transporter = nodemailer.createTransporter(SMTP_CONFIG);
+    this.transporter = nodemailer.createTransport(SMTP_CONFIG);
   }
 
   async sendLowStockAlert(notification: EmailNotification): Promise<boolean> {
