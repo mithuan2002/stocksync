@@ -4,7 +4,8 @@ import { createServer, type Server } from "http";
 import multer from "multer";
 import Papa from "papaparse";
 import { storage } from "./storage";
-import { insertProductSchema, insertCsvUploadSchema, insertSettingsSchema, insertSellerSchema } from "@shared/schema";
+import { emailService } from "./emailService";
+import { insertProductSchema, insertCsvUploadSchema, insertSettingsSchema, insertSellerSchema, insertSupplierSchema } from "@shared/schema";
 
 // Configure multer for CSV file uploads
 const upload = multer({
@@ -294,12 +295,15 @@ function parseCSVIntelligently(csvContent: string, filename: string = ''): { dat
   };
 }
 
-// Inventory reconciliation logic
+// Inventory reconciliation logic with email notifications
 async function reconcileInventory(sellerId: string, globalThreshold: number) {
   const allProducts = await storage.getProductsBySellerId(sellerId);
+  const seller = await storage.getSellerById(sellerId);
+  const settings = await storage.getSettingsBySellerId(sellerId);
   
   for (const product of allProducts) {
     const totalQuantity = product.channels.reduce((sum, channel) => sum + channel.quantity, 0);
+    const wasLowStock = product.isLowStock;
     const isLowStock = totalQuantity < (product.lowStockThreshold || globalThreshold);
     
     await storage.updateProduct(product.id, {
@@ -307,6 +311,48 @@ async function reconcileInventory(sellerId: string, globalThreshold: number) {
       isLowStock,
       lowStockThreshold: product.lowStockThreshold || globalThreshold,
     });
+
+    // Send email notification for newly low stock items
+    if (!wasLowStock && isLowStock && product.supplierId && settings.emailNotifications) {
+      try {
+        const supplier = await storage.getSupplierById(product.supplierId);
+        if (supplier && seller) {
+          const emailTemplate = emailService.generateLowStockEmailTemplate(
+            supplier.name,
+            product.productName,
+            product.sku,
+            totalQuantity,
+            product.lowStockThreshold || globalThreshold,
+            seller.companyName || seller.name
+          );
+
+          const emailSent = await emailService.sendLowStockAlert({
+            to: supplier.email,
+            subject: `🚨 URGENT: Low Stock Alert - ${product.productName} (SKU: ${product.sku})`,
+            html: emailTemplate,
+            productName: product.productName,
+            sku: product.sku,
+            currentStock: totalQuantity,
+            threshold: product.lowStockThreshold || globalThreshold,
+          });
+
+          // Log the notification
+          await storage.createNotification({
+            sellerId: sellerId,
+            productId: product.id,
+            supplierId: product.supplierId,
+            type: "low_stock_alert",
+            status: emailSent ? "sent" : "failed",
+            subject: `Low Stock Alert - ${product.productName}`,
+            message: `Stock level: ${totalQuantity} units (below threshold of ${product.lowStockThreshold || globalThreshold} units)`,
+          });
+
+          console.log(`Low stock notification ${emailSent ? 'sent' : 'failed'} for product ${product.sku} to supplier ${supplier.email}`);
+        }
+      } catch (error) {
+        console.error(`Failed to send notification for product ${product.sku}:`, error);
+      }
+    }
   }
 }
 
@@ -606,6 +652,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Update product (for supplier assignments)
+  app.put("/api/products/:id", async (req, res) => {
+    try {
+      const productData = insertProductSchema.partial().parse(req.body);
+      const product = await storage.updateProduct(req.params.id, productData);
+      res.json(product);
+    } catch (error) {
+      console.error("Error updating product:", error);
+      if (error instanceof Error && 'issues' in error) {
+        res.status(400).json({ error: "Invalid product data", details: error.message });
+      } else {
+        res.status(500).json({ error: "Failed to update product" });
+      }
+    }
+  });
+
   // Delete product
   app.delete("/api/products/:id", async (req, res) => {
     try {
@@ -634,6 +696,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Reconciliation error:", error);
       res.status(500).json({ error: "Reconciliation failed" });
+    }
+  });
+
+  // Supplier management routes
+  app.get("/api/suppliers", async (req, res) => {
+    try {
+      const sellerId = req.query.sellerId as string;
+      let seller;
+      
+      if (sellerId) {
+        seller = await storage.getSellerById(sellerId);
+        if (!seller) {
+          return res.status(404).json({ error: "Seller not found" });
+        }
+      } else {
+        seller = await getOrCreateDefaultSeller();
+      }
+      
+      const suppliers = await storage.getSuppliersBySellerId(seller.id);
+      res.json(suppliers);
+    } catch (error) {
+      console.error("Error fetching suppliers:", error);
+      res.status(500).json({ error: "Failed to fetch suppliers" });
+    }
+  });
+
+  app.post("/api/suppliers", async (req, res) => {
+    try {
+      const supplierData = insertSupplierSchema.parse(req.body);
+      const supplier = await storage.createSupplier(supplierData);
+      res.json(supplier);
+    } catch (error) {
+      console.error("Error creating supplier:", error);
+      if (error instanceof Error && 'issues' in error) {
+        res.status(400).json({ error: "Invalid supplier data", details: error.message });
+      } else {
+        res.status(500).json({ error: "Failed to create supplier" });
+      }
+    }
+  });
+
+  app.put("/api/suppliers/:id", async (req, res) => {
+    try {
+      const supplierData = insertSupplierSchema.partial().parse(req.body);
+      const supplier = await storage.updateSupplier(req.params.id, supplierData);
+      res.json(supplier);
+    } catch (error) {
+      console.error("Error updating supplier:", error);
+      if (error instanceof Error && 'issues' in error) {
+        res.status(400).json({ error: "Invalid supplier data", details: error.message });
+      } else {
+        res.status(500).json({ error: "Failed to update supplier" });
+      }
+    }
+  });
+
+  app.delete("/api/suppliers/:id", async (req, res) => {
+    try {
+      await storage.deleteSupplier(req.params.id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting supplier:", error);
+      res.status(500).json({ error: "Failed to delete supplier" });
     }
   });
 

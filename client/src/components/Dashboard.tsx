@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2 } from "lucide-react";
+import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2, Users } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardStats } from "./DashboardStats";
 import { InventoryTable } from "./InventoryTable";
 import { FileUploadZone } from "./FileUploadZone";
 import { SettingsPanel } from "./SettingsPanel";
+import { SupplierManagement } from "./SupplierManagement";
+import { ProductSupplierSelector } from "./ProductSupplierSelector";
 import { ThemeToggle } from "./ThemeToggle";
 import { TenantSelector } from "./TenantSelector";
 import { Product, Settings, Seller } from "@shared/schema";
@@ -176,7 +178,7 @@ export function Dashboard() {
           </div>
         ) : (
           <Tabs defaultValue="dashboard" className="space-y-6">
-          <TabsList className="grid w-full max-w-2xl grid-cols-5">
+          <TabsList className="grid w-full max-w-3xl grid-cols-6">
             <TabsTrigger value="dashboard" data-testid="tab-dashboard">
               <BarChart3 className="h-4 w-4 mr-2" />
               Dashboard
@@ -188,6 +190,10 @@ export function Dashboard() {
             <TabsTrigger value="inventory" data-testid="tab-inventory">
               <Package className="h-4 w-4 mr-2" />
               Inventory
+            </TabsTrigger>
+            <TabsTrigger value="suppliers" data-testid="tab-suppliers">
+              <Users className="h-4 w-4 mr-2" />
+              Suppliers
             </TabsTrigger>
             <TabsTrigger value="tenants" data-testid="tab-tenants">
               <Building2 className="h-4 w-4 mr-2" />
@@ -278,6 +284,18 @@ export function Dashboard() {
               </p>
             </div>
             <InventoryTable products={products} onExport={handleExport} />
+          </TabsContent>
+
+          <TabsContent value="suppliers" className="space-y-6">
+            <SupplierManagement currentSeller={currentSeller!} />
+            
+            <div className="border-t pt-6">
+              <ProductSupplierSelector
+                currentSeller={currentSeller!}
+                products={products}
+                onProductUpdate={fetchProducts}
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="tenants" className="space-y-6">
