@@ -1,0 +1,6 @@
+SKU,Product Name,Quantity,Price,Fulfillment Channel,Open Orders
+SKU001,T-Shirt Red,10,20,FBA,2
+SKU002,Jeans Blue,5,40,FBA,1
+SKU003,Cap Black,0,10,FBA,0
+SKU004,Sneakers White,12,60,FBA,3
+SKU005,Hoodie Grey,3,30,FBA,1
