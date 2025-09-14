@@ -32,6 +32,8 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
     formData.append('csvFile', file);
     formData.append('channel', channel);
 
+    console.log(`Uploading ${file.name} for channel: ${selectedChannel}`);
+
     try {
       setIsUploading(true);
       const response = await fetch('/api/upload', {
@@ -49,7 +51,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
             message: result.message 
           } : f)
         );
-        
+
         toast({
           title: "Upload Successful",
           description: result.message,
@@ -64,7 +66,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
             message: result.error || 'Upload failed' 
           } : f)
         );
-        
+
         toast({
           title: "Upload Failed",
           description: result.error || 'Upload failed',
@@ -82,7 +84,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
           message: 'Network error' 
         } : f)
       );
-      
+
       toast({
         title: "Upload Failed",
         description: 'Network error occurred',
@@ -98,9 +100,9 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
+
     if (isUploading) return;
-    
+
     const files = Array.from(e.dataTransfer.files);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
@@ -118,7 +120,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (isUploading) return;
-    
+
     const files = Array.from(e.target.files || []);
     files.forEach(file => {
       if (file.name.endsWith('.csv')) {
@@ -132,7 +134,7 @@ export function FileUploadZone({ onFileUpload }: FileUploadZoneProps) {
         });
       }
     });
-    
+
     // Reset the input
     e.target.value = '';
   }, [selectedChannel, isUploading]);

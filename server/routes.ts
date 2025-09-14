@@ -224,9 +224,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const existingProduct = await storage.getProductBySku(row.sku);
           
           if (existingProduct) {
-            // Update existing product
+            // Update existing product - keep other channels and update/add this channel
             const updatedChannels = existingProduct.channels.filter(c => c.channel !== channel);
-            updatedChannels.push({ channel, quantity });
+            updatedChannels.push({ channel: channel, quantity });
             
             const totalQuantity = updatedChannels.reduce((sum, c) => sum + c.quantity, 0);
             const settings = await storage.getSettings();
@@ -240,7 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           } else {
             // Create new product
             const settings = await storage.getSettings();
-            const channels = [{ channel, quantity }];
+            const channels = [{ channel: channel, quantity }];
             const isLowStock = quantity < settings.globalLowStockThreshold;
             
             await storage.createProduct({
