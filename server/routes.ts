@@ -30,18 +30,22 @@ interface ParsedRow {
 
 function detectCSVFormat(headers: string[]): 'amazon' | 'shopify' | 'generic' {
   const headerStr = headers.join(',').toLowerCase();
+  console.log('Detecting CSV format from headers:', headers);
   
-  // Amazon format detection
-  if (headerStr.includes('fulfillment channel') || 
-      (headerStr.includes('sku') && headerStr.includes('product name') && headerStr.includes('quantity'))) {
+  // Amazon format detection - check for specific Amazon headers
+  if (headerStr.includes('fulfillment channel') || headerStr.includes('open orders') ||
+      (headerStr.includes('sku') && headerStr.includes('product name') && !headerStr.includes('variant'))) {
+    console.log('Detected Amazon format');
     return 'amazon';
   }
   
-  // Shopify format detection
-  if (headerStr.includes('handle') && headerStr.includes('variant sku') && headerStr.includes('variant inventory qty')) {
+  // Shopify format detection - check for specific Shopify headers
+  if (headerStr.includes('handle') || headerStr.includes('variant sku') || headerStr.includes('variant inventory qty')) {
+    console.log('Detected Shopify format');
     return 'shopify';
   }
   
+  console.log('Detected generic format');
   return 'generic';
 }
 
@@ -53,26 +57,28 @@ function transformHeadersForFormat(header: string, format: 'amazon' | 'shopify' 
       if (normalized === 'sku') return 'sku';
       if (normalized === 'product name') return 'productName';
       if (normalized === 'quantity') return 'quantity';
-      break;
+      return header; // Keep original header if no match
       
     case 'shopify':
       if (normalized === 'variant sku') return 'sku';
       if (normalized === 'title') return 'productName';
       if (normalized === 'variant inventory qty') return 'quantity';
-      break;
+      return header; // Keep original header if no match
       
     case 'generic':
       // Generic format with flexible matching
-      if (normalized.includes('sku') || normalized.includes('id')) return 'sku';
+      if (normalized.includes('sku') || normalized === 'id') return 'sku';
       if (normalized.includes('name') || normalized.includes('title')) return 'productName';
       if (normalized.includes('quantity') || normalized.includes('stock') || normalized.includes('inventory')) return 'quantity';
-      break;
+      return header; // Keep original header if no match
   }
   
   return header;
 }
 
 function parseCSV(csvContent: string): ParsedRow[] {
+  console.log('Starting CSV parsing...');
+  
   // First pass to detect format
   const headerResult = Papa.parse(csvContent, {
     header: false,
@@ -81,11 +87,14 @@ function parseCSV(csvContent: string): ParsedRow[] {
   });
 
   if (headerResult.errors.length > 0) {
+    console.error('Header parsing error:', headerResult.errors[0]);
     throw new Error(`CSV parsing error: ${headerResult.errors[0].message}`);
   }
 
   const headers = headerResult.data[0] as string[];
   const format = detectCSVFormat(headers);
+  console.log('Original headers:', headers);
+  console.log('Detected format:', format);
 
   // Second pass with format-specific parsing
   const result = Papa.parse(csvContent, {
@@ -95,23 +104,57 @@ function parseCSV(csvContent: string): ParsedRow[] {
   });
 
   if (result.errors.length > 0) {
+    console.error('Data parsing error:', result.errors[0]);
     throw new Error(`CSV parsing error: ${result.errors[0].message}`);
   }
 
   const parsedData = result.data as ParsedRow[];
+  console.log('Raw parsed data (first 2 rows):', parsedData.slice(0, 2));
   
   // Additional validation and cleaning based on format
-  return parsedData.filter(row => {
-    // Ensure we have required fields
-    const hasSku = row.sku && row.sku.trim() !== '';
-    const hasName = row.productName && row.productName.trim() !== '';
-    const hasQuantity = row.quantity !== undefined && row.quantity !== null && row.quantity !== '';
+  const validData = parsedData.filter(row => {
+    // Check for empty rows
+    if (!row || Object.keys(row).length === 0) {
+      return false;
+    }
     
-    return hasSku && hasName && hasQuantity;
-  }).map(row => ({
-    ...row,
-    quantity: String(parseInt(row.quantity || '0') || 0), // Ensure quantity is a valid number string
-  }));
+    // Ensure we have required fields
+    const hasSku = row.sku && String(row.sku).trim() !== '';
+    const hasName = row.productName && String(row.productName).trim() !== '';
+    const hasQuantity = row.quantity !== undefined && row.quantity !== null && String(row.quantity).trim() !== '';
+    
+    if (!hasSku || !hasName || !hasQuantity) {
+      console.log('Skipping row due to missing data:', {
+        sku: row.sku,
+        productName: row.productName,
+        quantity: row.quantity,
+        hasSku,
+        hasName,
+        hasQuantity
+      });
+      return false;
+    }
+    
+    return true;
+  }).map(row => {
+    const quantity = parseInt(String(row.quantity)) || 0;
+    console.log('Processing row:', {
+      sku: row.sku,
+      productName: row.productName,
+      originalQuantity: row.quantity,
+      parsedQuantity: quantity
+    });
+    
+    return {
+      ...row,
+      sku: String(row.sku).trim(),
+      productName: String(row.productName).trim(),
+      quantity: String(quantity),
+    };
+  });
+
+  console.log(`Parsed ${validData.length} valid rows from ${parsedData.length} total rows`);
+  return validData;
 }
 
 // Inventory reconciliation logic
@@ -173,15 +216,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Process each row
         for (const row of parsedData) {
-          if (!row.sku || !row.productName || row.quantity === undefined) {
-            skippedCount++;
-            console.log(`Skipping incomplete row: SKU=${row.sku}, Name=${row.productName}, Qty=${row.quantity}`);
-            continue;
-          }
-
           const quantity = parseInt(row.quantity) || 0;
           
-          console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units)`)
+          console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units from ${channel})`);
           
           // Check if product exists
           const existingProduct = await storage.getProductBySku(row.sku);
