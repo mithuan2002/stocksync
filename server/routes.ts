@@ -295,8 +295,8 @@ function parseCSVIntelligently(csvContent: string, filename: string = ''): { dat
 }
 
 // Inventory reconciliation logic
-async function reconcileInventory(globalThreshold: number) {
-  const allProducts = await storage.getAllProducts();
+async function reconcileInventory(sellerId: string, globalThreshold: number) {
+  const allProducts = await storage.getProductsBySellerId(sellerId);
   
   for (const product of allProducts) {
     const totalQuantity = product.channels.reduce((sum, channel) => sum + channel.quantity, 0);
@@ -310,11 +310,36 @@ async function reconcileInventory(globalThreshold: number) {
   }
 }
 
+// Simple seller context middleware for testing
+async function getOrCreateDefaultSeller() {
+  const defaultEmail = 'demo@seller.com';
+  let seller = await storage.getSellerByEmail(defaultEmail);
+  
+  if (!seller) {
+    try {
+      seller = await storage.createSeller({
+        email: defaultEmail,
+        name: 'Demo Seller',
+        companyName: 'Demo Company'
+      });
+    } catch (error) {
+      // If seller already exists due to race condition, fetch it
+      seller = await storage.getSellerByEmail(defaultEmail);
+      if (!seller) {
+        throw error; // Re-throw if still not found
+      }
+    }
+  }
+  
+  return seller;
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Get all products
   app.get("/api/products", async (req, res) => {
     try {
-      const products = await storage.getAllProducts();
+      const seller = await getOrCreateDefaultSeller();
+      const products = await storage.getProductsBySellerId(seller.id);
       res.json(products);
     } catch (error) {
       console.error("Error fetching products:", error);
@@ -339,7 +364,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { data: parsedData, detectedFormat } = parseCSVIntelligently(csvContent, filename);
         
         // Create upload record with detected info
+        const seller = await getOrCreateDefaultSeller();
         const uploadRecord = await storage.createCsvUpload({
+          sellerId: seller.id,
           filename: filename,
           channel: detectedFormat.channel,
           status: "processing",
@@ -357,7 +384,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`Processing: ${row.sku} - ${row.productName} (${quantity} units from ${detectedFormat.channel})`);
           
           // Check if product exists
-          const existingProduct = await storage.getProductBySku(row.sku!);
+          const seller = await getOrCreateDefaultSeller();
+          const existingProduct = await storage.getProductBySku(seller.id, row.sku!);
           
           if (existingProduct) {
             // Update existing product - keep other channels and update/add this channel
@@ -365,7 +393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             updatedChannels.push({ channel: detectedFormat.channel, quantity });
             
             const totalQuantity = updatedChannels.reduce((sum, c) => sum + c.quantity, 0);
-            const settings = await storage.getSettings();
+            const settings = await storage.getSettingsBySellerId(seller.id);
             const isLowStock = totalQuantity < (existingProduct.lowStockThreshold || settings.globalLowStockThreshold);
             
             await storage.updateProduct(existingProduct.id, {
@@ -375,11 +403,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           } else {
             // Create new product
-            const settings = await storage.getSettings();
+            const settings = await storage.getSettingsBySellerId(seller.id);
             const channels = [{ channel: detectedFormat.channel, quantity }];
             const isLowStock = quantity < settings.globalLowStockThreshold;
             
             await storage.createProduct({
+              sellerId: seller.id,
               sku: row.sku!,
               productName: row.productName!,
               channels,
@@ -399,8 +428,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         // Reconcile all inventory
-        const settings = await storage.getSettings();
-        await reconcileInventory(settings.globalLowStockThreshold);
+        const settings = await storage.getSettingsBySellerId(seller.id);
+        await reconcileInventory(seller.id, settings.globalLowStockThreshold);
 
         res.json({
           success: true,
@@ -432,7 +461,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get CSV upload history
   app.get("/api/uploads", async (req, res) => {
     try {
-      const uploads = await storage.getAllCsvUploads();
+      const seller = await getOrCreateDefaultSeller();
+      const uploads = await storage.getCsvUploadsBySellerId(seller.id);
       res.json(uploads);
     } catch (error) {
       console.error("Error fetching uploads:", error);
@@ -443,7 +473,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get settings
   app.get("/api/settings", async (req, res) => {
     try {
-      const settings = await storage.getSettings();
+      const seller = await getOrCreateDefaultSeller();
+      const settings = await storage.getSettingsBySellerId(seller.id);
       res.json(settings);
     } catch (error) {
       console.error("Error fetching settings:", error);
@@ -454,11 +485,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update settings
   app.put("/api/settings", async (req, res) => {
     try {
+      const seller = await getOrCreateDefaultSeller();
       const validatedSettings = insertSettingsSchema.parse(req.body);
-      const updatedSettings = await storage.updateSettings(validatedSettings);
+      const updatedSettings = await storage.updateSettings(seller.id, validatedSettings);
       
       // Reconcile inventory with new threshold
-      await reconcileInventory(updatedSettings.globalLowStockThreshold);
+      await reconcileInventory(seller.id, updatedSettings.globalLowStockThreshold);
       
       res.json(updatedSettings);
     } catch (error) {
@@ -474,7 +506,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Export inventory as CSV
   app.get("/api/export", async (req, res) => {
     try {
-      const products = await storage.getAllProducts();
+      const seller = await getOrCreateDefaultSeller();
+      const products = await storage.getProductsBySellerId(seller.id);
       
       // Generate CSV content matching the inventory overview table format
       const headers = [
@@ -529,10 +562,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Manual reconciliation endpoint
   app.post("/api/reconcile", async (req, res) => {
     try {
-      const settings = await storage.getSettings();
-      await reconcileInventory(settings.globalLowStockThreshold);
+      const seller = await getOrCreateDefaultSeller();
+      const settings = await storage.getSettingsBySellerId(seller.id);
+      await reconcileInventory(seller.id, settings.globalLowStockThreshold);
       
-      const products = await storage.getAllProducts();
+      const products = await storage.getProductsBySellerId(seller.id);
       res.json({ 
         success: true, 
         message: "Inventory reconciled successfully",
