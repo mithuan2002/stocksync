@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2, Users, Bell } from "lucide-react";
+import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2, Users, Bell, AlertTriangle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardStats } from "./DashboardStats";
 import { InventoryTable } from "./InventoryTable";
@@ -27,6 +27,11 @@ function Dashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   const [isTestingNotification, setIsTestingNotification] = useState(false);
+  const [isCheckingLowStock, setIsCheckingLowStock] = useState(false); // State for checking low stock
+
+  // Placeholder for selectedSellerId, assuming it's managed elsewhere or should be derived from currentSeller
+  // For this example, we'll use currentSeller?.id if available.
+  const selectedSellerId = currentSeller?.id;
 
   // Fetch products from API
   const fetchProducts = async () => {
@@ -215,40 +220,95 @@ function Dashboard() {
   };
 
   const handleTestNotification = async () => {
+    if (!selectedSellerId) {
+      toast({
+        title: "Error",
+        description: "Please select a seller first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsTestingNotification(true);
     try {
-      const response = await fetch('/api/test-notification', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ sellerId: currentSeller?.id }),
+      const response = await fetch("/api/test-notification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerId: selectedSellerId }),
       });
+
       const result = await response.json();
 
-      if (!response.ok) {
-        console.error('Failed to send test notification:', result);
+      if (result.success) {
         toast({
-          title: "Notification Test Failed",
-          description: result.error || "Could not send a test email notification.",
-          variant: "destructive",
+          title: "Test Email Sent",
+          description: "Check the supplier's email inbox for the test notification",
         });
       } else {
         toast({
-          title: result.success ? "Test Email Sent!" : "Email Configuration Issue",
-          description: result.message + (result.emailConfigured ? "" : " (EMAIL_PASSWORD not configured)"),
-          variant: result.success ? "default" : "destructive",
+          title: "Test Failed",
+          description: result.error || "Failed to send test email",
+          variant: "destructive",
         });
       }
     } catch (error) {
-      console.error('Error sending test notification:', error);
       toast({
-        title: "Notification Test Error",
-        description: "An error occurred while sending a test email.",
+        title: "Error",
+        description: "Failed to send test notification",
         variant: "destructive",
       });
     } finally {
       setIsTestingNotification(false);
+    }
+  };
+
+  const handleManualLowStockCheck = async () => {
+    if (!selectedSellerId) {
+      toast({
+        title: "Error",
+        description: "Please select a seller first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsCheckingLowStock(true);
+    try {
+      const response = await fetch("/api/check-and-send-low-stock-emails", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerId: selectedSellerId }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast({
+          title: "Low Stock Check Complete",
+          description: `Sent ${result.emailsSent} notification emails. ${result.emailsFailed > 0 ? `${result.emailsFailed} failed.` : ''}`,
+        });
+
+        // Log detailed results to console for debugging
+        console.log("Low stock check results:", result);
+
+        if (result.processedProducts && result.processedProducts.length > 0) {
+          console.log("Products processed:", result.processedProducts);
+        }
+      } else {
+        toast({
+          title: "Check Failed", 
+          description: result.error || "Failed to check low stock",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to perform low stock check",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCheckingLowStock(false);
     }
   };
 
@@ -375,25 +435,20 @@ function Dashboard() {
                   <Button 
                     variant="outline" 
                     size="sm"
-                    onClick={async () => {
-                      try {
-                        const response = await fetch('/api/auto-check-low-stock', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' }
-                        });
-                        const result = await response.json();
-                        if (result.success) {
-                          toast({ title: "Auto-check completed", description: "Checked all products for low stock" });
-                        } else {
-                          toast({ title: "Auto-check failed", description: result.error, variant: "destructive" });
-                        }
-                      } catch (error) {
-                        toast({ title: "Auto-check failed", description: "Failed to run auto-check", variant: "destructive" });
-                      }
-                    }}
+                    onClick={handleManualLowStockCheck}
+                    disabled={isCheckingLowStock}
                   >
-                    <Bell className="mr-2 h-4 w-4" />
-                    Auto-Check Now
+                    {isCheckingLowStock ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        <Bell className="mr-2 h-4 w-4" />
+                        Auto-Check Now
+                      </>
+                    )}
                   </Button>
                 </div>
               </div>

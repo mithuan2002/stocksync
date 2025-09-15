@@ -1032,6 +1032,115 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Manual trigger for immediate low stock check
+  app.post("/api/check-and-send-low-stock-emails", async (req, res) => {
+    try {
+      const sellerId = req.body.sellerId;
+      if (!sellerId) {
+        return res.status(400).json({ error: "Seller ID is required" });
+      }
+
+      const seller = await storage.getSellerById(sellerId);
+      if (!seller) {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const settings = await storage.getSettingsBySellerId(sellerId);
+      if (!settings.emailNotifications) {
+        return res.status(400).json({ error: "Email notifications are disabled. Please enable them in settings first." });
+      }
+
+      console.log(`Manual low stock check triggered for seller ${sellerId}...`);
+      
+      const products = await storage.getProductsBySellerId(sellerId);
+      const suppliers = await storage.getSuppliersBySellerId(sellerId);
+      
+      let emailsSent = 0;
+      let emailsFailed = 0;
+      const processedProducts = [];
+      
+      for (const product of products) {
+        const totalQuantity = product.totalQuantity || 0;
+        const threshold = product.lowStockThreshold || settings.globalLowStockThreshold;
+        const isLowStock = totalQuantity <= threshold;
+        
+        if (isLowStock && product.supplierId) {
+          const supplier = suppliers.find(s => s.id === product.supplierId);
+          if (supplier) {
+            try {
+              console.log(`Sending manual low stock notification for product ${product.sku} (${totalQuantity} <= ${threshold}) to supplier ${supplier.email}`);
+              
+              const emailTemplate = emailService.generateLowStockEmailTemplate(
+                supplier.name,
+                product.productName,
+                product.sku,
+                totalQuantity,
+                threshold,
+                seller.companyName || seller.name
+              );
+
+              const emailSent = await emailService.sendLowStockAlert({
+                to: supplier.email,
+                subject: `🚨 MANUAL CHECK: Low Stock Alert - ${product.productName} (SKU: ${product.sku})`,
+                html: emailTemplate,
+                productName: product.productName,
+                sku: product.sku,
+                currentStock: totalQuantity,
+                threshold: threshold,
+              });
+
+              if (emailSent) {
+                emailsSent++;
+                // Log the notification
+                await storage.createNotification({
+                  sellerId: sellerId,
+                  productId: product.id,
+                  supplierId: product.supplierId,
+                  type: "manual_low_stock_alert",
+                  status: "sent",
+                  subject: `Manual Low Stock Alert - ${product.productName}`,
+                  message: `Manual check notification: Stock level: ${totalQuantity} units (at or below threshold of ${threshold} units)`,
+                });
+                
+                console.log(`✅ Manual low stock notification sent for product ${product.sku} to supplier ${supplier.email}`);
+              } else {
+                emailsFailed++;
+                console.log(`❌ Manual low stock notification failed for product ${product.sku} to supplier ${supplier.email}`);
+              }
+              
+              processedProducts.push({
+                sku: product.sku,
+                productName: product.productName,
+                currentStock: totalQuantity,
+                threshold: threshold,
+                supplier: supplier.name,
+                supplierEmail: supplier.email,
+                emailSent: emailSent
+              });
+              
+            } catch (error) {
+              emailsFailed++;
+              console.error(`Failed to send manual notification for product ${product.sku}:`, error);
+            }
+          }
+        }
+      }
+      
+      res.json({ 
+        success: true,
+        message: `Manual low stock check completed. Sent ${emailsSent} emails, ${emailsFailed} failed.`,
+        emailsSent,
+        emailsFailed,
+        processedProducts,
+        emailConfigured: !!process.env.EMAIL_PASSWORD || !!process.env.EMAIL_USER
+      });
+
+    } catch (error) {
+      console.error("Manual low stock check error:", error);
+      res.status(500).json({ error: "Manual low stock check failed" });
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Set up periodic automatic checking every 30 minutes
