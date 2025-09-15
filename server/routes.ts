@@ -704,10 +704,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if we should send notification
       const becameLowStock = !wasLowStock && isCurrentlyLowStock;
       const supplierAdded = !hadSupplier && !!product.supplierId;
+      const wasAlreadyLowAndHasSupplier = wasLowStock && isCurrentlyLowStock && !!product.supplierId;
       
       const shouldSendNotification = settings.emailNotifications && product.supplierId && (
         (becameLowStock) || // Became low stock and has supplier
-        (supplierAdded && isCurrentlyLowStock) // Supplier assigned to already low stock item
+        (supplierAdded && isCurrentlyLowStock) || // Supplier assigned to already low stock item
+        (wasAlreadyLowAndHasSupplier && productData.totalQuantity !== undefined) // Manual update to already low stock item with supplier
       );
 
       console.log(`Product update notification check:`, {
@@ -716,6 +718,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasSupplier: !!product.supplierId,
         becameLowStock,
         supplierAdded,
+        wasAlreadyLowAndHasSupplier,
+        manualUpdate: productData.totalQuantity !== undefined,
         isCurrentlyLowStock,
         shouldSend: shouldSendNotification
       });
