@@ -295,6 +295,79 @@ function parseCSVIntelligently(csvContent: string, filename: string = ''): { dat
   };
 }
 
+// Automatic low stock checking function
+async function checkAndNotifyLowStock() {
+  try {
+    const allSellers = await storage.getAllSellers();
+    
+    for (const seller of allSellers) {
+      const settings = await storage.getSettingsBySellerId(seller.id);
+      
+      if (!settings.emailNotifications) {
+        continue; // Skip if notifications are disabled
+      }
+      
+      const products = await storage.getProductsBySellerId(seller.id);
+      
+      for (const product of products) {
+        const totalQuantity = product.totalQuantity || 0;
+        const threshold = product.lowStockThreshold || settings.globalLowStockThreshold;
+        const isLowStock = totalQuantity <= threshold;
+        
+        // Send notification for low stock items with suppliers
+        if (isLowStock && product.supplierId) {
+          try {
+            const supplier = await storage.getSupplierById(product.supplierId);
+            if (supplier) {
+              console.log(`Auto-sending low stock notification for product ${product.sku} (${totalQuantity} <= ${threshold}) to supplier ${supplier.email}`);
+              
+              const emailTemplate = emailService.generateLowStockEmailTemplate(
+                supplier.name,
+                product.productName,
+                product.sku,
+                totalQuantity,
+                threshold,
+                seller.companyName || seller.name
+              );
+
+              const emailSent = await emailService.sendLowStockAlert({
+                to: supplier.email,
+                subject: `🚨 URGENT: Low Stock Alert - ${product.productName} (SKU: ${product.sku})`,
+                html: emailTemplate,
+                productName: product.productName,
+                sku: product.sku,
+                currentStock: totalQuantity,
+                threshold: threshold,
+              });
+
+              if (emailSent) {
+                // Log the notification
+                await storage.createNotification({
+                  sellerId: seller.id,
+                  productId: product.id,
+                  supplierId: product.supplierId,
+                  type: "auto_low_stock_alert",
+                  status: "sent",
+                  subject: `Auto Low Stock Alert - ${product.productName}`,
+                  message: `Automatic notification: Stock level: ${totalQuantity} units (at or below threshold of ${threshold} units)`,
+                });
+                
+                console.log(`Auto low stock notification sent for product ${product.sku} to supplier ${supplier.email}`);
+              } else {
+                console.log(`Auto low stock notification failed for product ${product.sku} to supplier ${supplier.email}`);
+              }
+            }
+          } catch (error) {
+            console.error(`Failed to send auto notification for product ${product.sku}:`, error);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error in automatic low stock checking:', error);
+  }
+}
+
 // Inventory reconciliation logic with email notifications
 async function reconcileInventory(sellerId: string, globalThreshold: number) {
   const allProducts = await storage.getProductsBySellerId(sellerId);
@@ -944,6 +1017,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Auto check low stock endpoint
+  app.post("/api/auto-check-low-stock", async (req, res) => {
+    try {
+      console.log("Starting automatic low stock check...");
+      await checkAndNotifyLowStock();
+      res.json({ 
+        success: true,
+        message: "Automatic low stock check completed"
+      });
+    } catch (error) {
+      console.error("Auto check error:", error);
+      res.status(500).json({ error: "Auto check failed" });
+    }
+  });
+
   const httpServer = createServer(app);
+  
+  // Set up periodic automatic checking every 30 minutes
+  setInterval(async () => {
+    console.log("Running scheduled low stock check...");
+    await checkAndNotifyLowStock();
+  }, 30 * 60 * 1000); // 30 minutes
+  
   return httpServer;
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2, Users } from "lucide-react";
+import { Upload, BarChart3, Settings as SettingsIcon, Package, Building2, Users, Bell } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DashboardStats } from "./DashboardStats";
 import { InventoryTable } from "./InventoryTable";
@@ -11,6 +11,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { TenantSelector } from "./TenantSelector";
 import { Product, Settings, Seller } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Loader2, Mail } from "lucide-react";
 
 function Dashboard() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -24,6 +26,7 @@ function Dashboard() {
   const [currentSeller, setCurrentSeller] = useState<Seller | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+  const [isTestingNotification, setIsTestingNotification] = useState(false);
 
   // Fetch products from API
   const fetchProducts = async () => {
@@ -163,7 +166,7 @@ function Dashboard() {
               body: JSON.stringify({ sellerId: currentSeller?.id }),
             });
             const testResult = await notificationResponse.json();
-            
+
             if (!notificationResponse.ok) {
               console.error('Failed to send test notification:', testResult);
               toast({
@@ -210,6 +213,45 @@ function Dashboard() {
       });
     }
   };
+
+  const handleTestNotification = async () => {
+    setIsTestingNotification(true);
+    try {
+      const response = await fetch('/api/test-notification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sellerId: currentSeller?.id }),
+      });
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Failed to send test notification:', result);
+        toast({
+          title: "Notification Test Failed",
+          description: result.error || "Could not send a test email notification.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: result.success ? "Test Email Sent!" : "Email Configuration Issue",
+          description: result.message + (result.emailConfigured ? "" : " (EMAIL_PASSWORD not configured)"),
+          variant: result.success ? "default" : "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Error sending test notification:', error);
+      toast({
+        title: "Notification Test Error",
+        description: "An error occurred while sending a test email.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsTestingNotification(false);
+    }
+  };
+
 
   // Helper function to call fetchProducts for use in InventoryTable
   const refetchProducts = fetchProducts;
@@ -309,6 +351,50 @@ function Dashboard() {
                       <span className="font-semibold">{settings.globalLowStockThreshold}</span>
                     </div>
                   </div>
+                </div>
+                <div className="flex items-center justify-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleTestNotification}
+                    disabled={isTestingNotification}
+                  >
+                    {isTestingNotification ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Testing...
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="mr-2 h-4 w-4" />
+                        Test Email
+                      </>
+                    )}
+                  </Button>
+
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const response = await fetch('/api/auto-check-low-stock', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' }
+                        });
+                        const result = await response.json();
+                        if (result.success) {
+                          toast({ title: "Auto-check completed", description: "Checked all products for low stock" });
+                        } else {
+                          toast({ title: "Auto-check failed", description: result.error, variant: "destructive" });
+                        }
+                      } catch (error) {
+                        toast({ title: "Auto-check failed", description: "Failed to run auto-check", variant: "destructive" });
+                      }
+                    }}
+                  >
+                    <Bell className="mr-2 h-4 w-4" />
+                    Auto-Check Now
+                  </Button>
                 </div>
               </div>
             </div>
