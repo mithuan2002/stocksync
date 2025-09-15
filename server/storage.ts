@@ -1,9 +1,9 @@
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, desc, and, count } from "drizzle-orm";
-import { 
-  products, 
-  csvUploads, 
+import {
+  products,
+  csvUploads,
   settings,
   sellers,
   suppliers,
@@ -62,6 +62,7 @@ export interface IStorage {
   // Products
   getProductsBySellerId(sellerId: string): Promise<Product[]>;
   getProductBySku(sellerId: string, sku: string): Promise<Product | undefined>;
+  getProductById(id: string): Promise<Product | undefined>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product>;
   deleteProduct(id: string): Promise<void>;
@@ -129,7 +130,7 @@ class InMemoryStorage implements IStorage {
   async updateSeller(id: string, seller: Partial<InsertSeller>): Promise<Seller> {
     const existing = this.sellers.get(id);
     if (!existing) throw new Error('Seller not found');
-    
+
     const updated = { ...existing, ...seller, updatedAt: new Date().toISOString() };
     this.sellers.set(id, updated);
     return updated;
@@ -163,7 +164,7 @@ class InMemoryStorage implements IStorage {
   async updateSupplier(id: string, supplier: Partial<InsertSupplier>): Promise<Supplier> {
     const existing = this.suppliers.get(id);
     if (!existing) throw new Error('Supplier not found');
-    
+
     const updated = { ...existing, ...supplier, updatedAt: new Date().toISOString() };
     this.suppliers.set(id, updated);
     return updated;
@@ -182,6 +183,10 @@ class InMemoryStorage implements IStorage {
     return Array.from(this.products.values()).find(p => p.sellerId === sellerId && p.sku === sku);
   }
 
+  async getProductById(id: string): Promise<Product | undefined> {
+    return this.products.get(id);
+  }
+
   async createProduct(product: InsertProduct): Promise<Product> {
     const id = this.generateId();
     const newProduct: Product = {
@@ -196,9 +201,26 @@ class InMemoryStorage implements IStorage {
   async updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product> {
     const existing = this.products.get(id);
     if (!existing) throw new Error('Product not found');
-    
+
     const updated = { ...existing, ...product };
     this.products.set(id, updated);
+
+    // Check for low stock notification
+    const settings = await this.getSettingsBySellerId(updated.sellerId);
+    if (settings.emailNotifications && updated.totalQuantity !== undefined && updated.totalQuantity <= (updated.lowStockThreshold ?? settings.globalLowStockThreshold) && updated.notificationsSent === 0) {
+      const notification: InsertNotification = {
+        sellerId: updated.sellerId,
+        productId: id,
+        supplierId: updated.supplierId,
+        type: "LOW_STOCK",
+        status: "sent",
+        subject: `Low Stock Alert: ${updated.productName}`,
+        message: `Product "${updated.productName}" (SKU: ${updated.sku}) is low on stock. Current quantity: ${updated.totalQuantity}. Threshold: ${updated.lowStockThreshold ?? settings.globalLowStockThreshold}.`,
+      };
+      await this.createNotification(notification);
+      updated.notificationsSent = (updated.notificationsSent ?? 0) + 1;
+    }
+
     return updated;
   }
 
@@ -229,7 +251,7 @@ class InMemoryStorage implements IStorage {
   async updateCsvUpload(id: string, upload: Partial<InsertCsvUpload>): Promise<CsvUpload> {
     const existing = this.csvUploads.get(id);
     if (!existing) throw new Error('Upload not found');
-    
+
     const updated = { ...existing, ...upload };
     this.csvUploads.set(id, updated);
     return updated;
@@ -248,11 +270,11 @@ class InMemoryStorage implements IStorage {
       ...history,
       recordedAt: new Date().toISOString(),
     };
-    
+
     const existing = this.stockHistoryMap.get(history.productId) || [];
     existing.unshift(newHistory);
     this.stockHistoryMap.set(history.productId, existing);
-    
+
     return newHistory;
   }
 
@@ -509,6 +531,35 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
+  async getProductById(id: string): Promise<Product | undefined> {
+    const result = await db.select({
+      product: products,
+      notificationCount: count(notifications.id)
+    })
+    .from(products)
+    .leftJoin(notifications, eq(notifications.productId, products.id))
+    .where(eq(products.id, id))
+    .groupBy(products.id)
+    .limit(1);
+
+    if (result.length === 0) return undefined;
+
+    const { product: p, notificationCount }: { product: any; notificationCount: number } = result[0];
+    return {
+      id: p.id,
+      sellerId: p.sellerId,
+      sku: p.sku,
+      productName: p.productName,
+      channels: p.channels as Array<{ channel: "Amazon" | "Shopify"; quantity: number }>,
+      totalQuantity: p.totalQuantity,
+      lowStockThreshold: p.lowStockThreshold,
+      isLowStock: p.isLowStock,
+      supplierId: p.supplierId ?? undefined,
+      forecastedStock: p.forecastedStock ? Number(p.forecastedStock) : undefined,
+      notificationsSent: notificationCount || 0,
+    };
+  }
+
   async createProduct(product: InsertProduct): Promise<Product> {
     const result = await db.insert(products).values({
       ...product,
@@ -543,6 +594,25 @@ export class DatabaseStorage implements IStorage {
       .returning();
 
     const p = result[0];
+
+    // Get current product details to check for low stock
+    const currentProduct = await this.getProductById(id);
+    const settings = await this.getSettingsBySellerId(p.sellerId);
+
+    if (currentProduct && settings.emailNotifications && currentProduct.totalQuantity !== undefined && currentProduct.totalQuantity <= (currentProduct.lowStockThreshold ?? settings.globalLowStockThreshold) && currentProduct.notificationsSent < 1) {
+      await this.createNotification({
+        sellerId: p.sellerId,
+        productId: id,
+        supplierId: p.supplierId,
+        type: "LOW_STOCK",
+        status: "sent",
+        subject: `Low Stock Alert: ${p.productName}`,
+        message: `Product "${p.productName}" (SKU: ${p.sku}) is low on stock. Current quantity: ${currentProduct.totalQuantity}. Threshold: ${currentProduct.lowStockThreshold ?? settings.globalLowStockThreshold}.`,
+      });
+      // Increment notification count
+      await db.update(products).set({ notificationsSent: (currentProduct.notificationsSent || 0) + 1 }).where(eq(products.id, id));
+    }
+
     // Get notification count
     const notificationCountResult = await db.select({ count: count() })
       .from(notifications)

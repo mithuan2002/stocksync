@@ -665,16 +665,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update product (for supplier assignments)
+  // Update product (for supplier assignments and manual edits)
   app.put("/api/products/:id", async (req, res) => {
     try {
       const productData = insertProductSchema.partial().parse(req.body);
+      
+      // Get the current product state before update
+      const currentProduct = await storage.getProductById(req.params.id);
+      if (!currentProduct) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+      
+      const wasLowStock = currentProduct.isLowStock;
+      
+      // Update the product
       const product = await storage.updateProduct(req.params.id, productData);
       
-      // Check if supplier was assigned to a low stock product and send notification
-      if (productData.supplierId && product.isLowStock) {
-        const settings = await storage.getSettingsBySellerId(product.sellerId);
-        if (settings.emailNotifications) {
+      // Get settings for email notifications
+      const settings = await storage.getSettingsBySellerId(product.sellerId);
+      
+      // Check if product became low stock due to manual edits (quantity changes or threshold changes)
+      const becameLowStock = !wasLowStock && product.isLowStock;
+      
+      // Send notification for newly low stock items (if supplier is assigned and notifications enabled)
+      if (becameLowStock && product.supplierId && settings.emailNotifications) {
+        try {
+          const supplier = await storage.getSupplierById(product.supplierId);
+          const seller = await storage.getSellerById(product.sellerId);
+          
+          if (supplier && seller) {
+            const emailTemplate = emailService.generateLowStockEmailTemplate(
+              supplier.name,
+              product.productName,
+              product.sku,
+              product.totalQuantity || 0,
+              product.lowStockThreshold || settings.globalLowStockThreshold,
+              seller.companyName || seller.name
+            );
+
+            const emailSent = await emailService.sendLowStockAlert({
+              to: supplier.email,
+              subject: `🚨 URGENT: Low Stock Alert - ${product.productName} (SKU: ${product.sku})`,
+              html: emailTemplate,
+              productName: product.productName,
+              sku: product.sku,
+              currentStock: product.totalQuantity || 0,
+              threshold: product.lowStockThreshold || settings.globalLowStockThreshold,
+            });
+
+            // Log the notification
+            await storage.createNotification({
+              sellerId: product.sellerId,
+              productId: product.id,
+              supplierId: product.supplierId,
+              type: "low_stock_alert",
+              status: emailSent ? "sent" : "failed",
+              subject: `Low Stock Alert - ${product.productName}`,
+              message: `Stock level: ${product.totalQuantity || 0} units (below threshold of ${product.lowStockThreshold || settings.globalLowStockThreshold} units)`,
+            });
+
+            console.log(`Low stock notification ${emailSent ? 'sent' : 'failed'} for manually edited product ${product.sku} to supplier ${supplier.email}`);
+          }
+        } catch (error) {
+          console.error(`Failed to send notification for manually edited product ${product.sku}:`, error);
+        }
+      }
+      
+      // Check if supplier was assigned to an already low stock product and send notification
+      if (productData.supplierId && product.isLowStock && settings.emailNotifications) {
+        // Only send if this is a new supplier assignment (not already assigned)
+        if (currentProduct.supplierId !== productData.supplierId) {
           try {
             const supplier = await storage.getSupplierById(productData.supplierId);
             const seller = await storage.getSellerById(product.sellerId);
