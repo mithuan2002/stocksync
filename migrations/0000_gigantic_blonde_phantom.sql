@@ -1,3 +1,4 @@
+
 CREATE TABLE "csv_uploads" (
 	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"seller_id" varchar NOT NULL,
@@ -13,7 +14,7 @@ CREATE TABLE "csv_uploads" (
 CREATE TABLE "notifications" (
 	"id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"seller_id" varchar NOT NULL,
-	"product_id" varchar NOT NULL,
+	"product_id" varchar,
 	"supplier_id" varchar NOT NULL,
 	"type" text DEFAULT 'low_stock_alert' NOT NULL,
 	"status" text DEFAULT 'sent' NOT NULL,

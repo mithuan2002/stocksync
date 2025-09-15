@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
 import { eq, desc, and, count } from "drizzle-orm";
+import { migrate } from "drizzle-orm/neon-http/migrator";
 import {
   products,
   csvUploads,
@@ -33,15 +34,111 @@ try {
   if (process.env.DATABASE_URL) {
     const sql = neon(process.env.DATABASE_URL);
     db = drizzle(sql);
+    
+    // Run database migrations automatically
+    await migrate(db, { migrationsFolder: './migrations' }).catch(async (error) => {
+      console.log('Migration failed, trying to run raw SQL...', error.message);
+      
+      // If migration fails, try to create tables manually
+      try {
+        const migrationSQL = `
+          CREATE TABLE IF NOT EXISTS "csv_uploads" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "filename" text NOT NULL,
+            "channel" text NOT NULL,
+            "uploaded_at" timestamp DEFAULT now(),
+            "processed_at" timestamp,
+            "status" text DEFAULT 'pending' NOT NULL,
+            "products_count" integer,
+            "error_message" text
+          );
+          
+          CREATE TABLE IF NOT EXISTS "sellers" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "email" text NOT NULL,
+            "name" text NOT NULL,
+            "company_name" text,
+            "created_at" timestamp DEFAULT now(),
+            "updated_at" timestamp DEFAULT now(),
+            CONSTRAINT "sellers_email_unique" UNIQUE("email")
+          );
+          
+          CREATE TABLE IF NOT EXISTS "suppliers" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "name" text NOT NULL,
+            "email" text NOT NULL,
+            "contact_person" text,
+            "created_at" timestamp DEFAULT now(),
+            "updated_at" timestamp DEFAULT now()
+          );
+          
+          CREATE TABLE IF NOT EXISTS "products" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "sku" text NOT NULL,
+            "product_name" text NOT NULL,
+            "channels" jsonb NOT NULL,
+            "total_quantity" integer DEFAULT 0 NOT NULL,
+            "low_stock_threshold" integer DEFAULT 10 NOT NULL,
+            "is_low_stock" boolean DEFAULT false NOT NULL,
+            "supplier_id" varchar,
+            "forecasted_stock" numeric(10, 2),
+            "created_at" timestamp DEFAULT now(),
+            "updated_at" timestamp DEFAULT now()
+          );
+          
+          CREATE TABLE IF NOT EXISTS "notifications" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "product_id" varchar,
+            "supplier_id" varchar NOT NULL,
+            "type" text DEFAULT 'low_stock_alert' NOT NULL,
+            "status" text DEFAULT 'sent' NOT NULL,
+            "sent_at" timestamp DEFAULT now(),
+            "subject" text,
+            "message" text
+          );
+          
+          CREATE TABLE IF NOT EXISTS "settings" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "global_low_stock_threshold" integer DEFAULT 10 NOT NULL,
+            "email_notifications" boolean DEFAULT false NOT NULL,
+            "auto_reconcile" boolean DEFAULT true NOT NULL,
+            "smtp_email" text,
+            "smtp_password" text,
+            "updated_at" timestamp DEFAULT now()
+          );
+          
+          CREATE TABLE IF NOT EXISTS "stock_history" (
+            "id" varchar PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+            "product_id" varchar NOT NULL,
+            "seller_id" varchar NOT NULL,
+            "total_quantity" integer NOT NULL,
+            "channels" jsonb NOT NULL,
+            "recorded_at" timestamp DEFAULT now()
+          );
+        `;
+        
+        await sql(migrationSQL);
+        console.log('Database tables created successfully');
+      } catch (sqlError) {
+        console.log('Failed to create tables manually:', sqlError);
+        throw sqlError;
+      }
+    });
+    
     useDatabase = true;
-    console.log('Connected to Neon database');
+    console.log('Connected to Neon database and migrations completed');
   } else {
     console.log('No DATABASE_URL found, using in-memory storage');
   }
 } catch (error) {
   console.log('Database connection failed, falling back to in-memory storage:', error);
   useDatabase = false;
-}
+}</error>
 
 export interface IStorage {
   // Sellers

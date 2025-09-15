@@ -66,7 +66,7 @@ export const stockHistory = pgTable("stock_history", {
 export const notifications = pgTable("notifications", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   sellerId: varchar("seller_id").notNull().references(() => sellers.id),
-  productId: varchar("product_id").notNull().references(() => products.id),
+  productId: varchar("product_id").references(() => products.id),
   supplierId: varchar("supplier_id").notNull().references(() => suppliers.id),
   type: text("type").notNull().default("low_stock_alert"),
   status: text("status").notNull().default("sent"),
