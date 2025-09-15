@@ -682,6 +682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const wasLowStock = currentProduct.isLowStock;
+      const hadSupplier = !!currentProduct.supplierId;
       
       // Update the product
       const product = await storage.updateProduct(req.params.id, productData);
@@ -689,30 +690,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get settings for email notifications
       const settings = await storage.getSettingsBySellerId(product.sellerId);
       
-      // Check if product became low stock due to manual edits (quantity changes or threshold changes)
-      const becameLowStock = !wasLowStock && product.isLowStock;
+      // Recalculate low stock status based on updated values
+      const updatedTotalQuantity = product.totalQuantity || 0;
+      const updatedThreshold = product.lowStockThreshold || settings.globalLowStockThreshold;
+      const isCurrentlyLowStock = updatedTotalQuantity <= updatedThreshold;
       
-      // Send notification for low stock items (newly low stock or supplier newly assigned)
-      const shouldSendNotification = (
-        (becameLowStock && product.supplierId) || // Became low stock and has supplier
-        (productData.supplierId && product.isLowStock && currentProduct.supplierId !== productData.supplierId) // Supplier assigned to already low stock item
-      ) && settings.emailNotifications;
+      // Update the low stock status if it changed
+      if (product.isLowStock !== isCurrentlyLowStock) {
+        await storage.updateProduct(req.params.id, { isLowStock: isCurrentlyLowStock });
+        product.isLowStock = isCurrentlyLowStock;
+      }
+      
+      // Check if we should send notification
+      const becameLowStock = !wasLowStock && isCurrentlyLowStock;
+      const supplierAdded = !hadSupplier && !!product.supplierId;
+      
+      const shouldSendNotification = settings.emailNotifications && product.supplierId && (
+        (becameLowStock) || // Became low stock and has supplier
+        (supplierAdded && isCurrentlyLowStock) // Supplier assigned to already low stock item
+      );
+
+      console.log(`Product update notification check:`, {
+        productSku: product.sku,
+        emailNotifications: settings.emailNotifications,
+        hasSupplier: !!product.supplierId,
+        becameLowStock,
+        supplierAdded,
+        isCurrentlyLowStock,
+        shouldSend: shouldSendNotification
+      });
 
       if (shouldSendNotification) {
         try {
-          const supplierId = productData.supplierId || product.supplierId;
-          const supplier = await storage.getSupplierById(supplierId!);
+          const supplier = await storage.getSupplierById(product.supplierId!);
           const seller = await storage.getSellerById(product.sellerId);
           
           if (supplier && seller) {
-            console.log(`Sending low stock notification for updated product ${product.sku} to supplier ${supplier.email}`);
+            console.log(`Sending low stock notification for updated product ${product.sku} (${updatedTotalQuantity} <= ${updatedThreshold}) to supplier ${supplier.email}`);
             
             const emailTemplate = emailService.generateLowStockEmailTemplate(
               supplier.name,
               product.productName,
               product.sku,
-              product.totalQuantity || 0,
-              product.lowStockThreshold || settings.globalLowStockThreshold,
+              updatedTotalQuantity,
+              updatedThreshold,
               seller.companyName || seller.name
             );
 
@@ -722,19 +743,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
               html: emailTemplate,
               productName: product.productName,
               sku: product.sku,
-              currentStock: product.totalQuantity || 0,
-              threshold: product.lowStockThreshold || settings.globalLowStockThreshold,
+              currentStock: updatedTotalQuantity,
+              threshold: updatedThreshold,
             });
 
             // Log the notification
             await storage.createNotification({
               sellerId: product.sellerId,
               productId: product.id,
-              supplierId: supplierId!,
+              supplierId: product.supplierId!,
               type: "low_stock_alert",
               status: emailSent ? "sent" : "failed",
               subject: `Low Stock Alert - ${product.productName}`,
-              message: `Stock level: ${product.totalQuantity || 0} units (at or below threshold of ${product.lowStockThreshold || settings.globalLowStockThreshold} units)`,
+              message: `Stock level: ${updatedTotalQuantity} units (at or below threshold of ${updatedThreshold} units)`,
             });
 
             console.log(`Low stock notification ${emailSent ? 'sent' : 'failed'} for product ${product.sku} to supplier ${supplier.email}`);
@@ -852,3 +873,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+
+
+  // Test email notification endpoint
+  app.post("/api/test-notification", async (req, res) => {
+    try {
+      const sellerId = req.body.sellerId;
+      if (!sellerId) {
+        return res.status(400).json({ error: "Seller ID is required" });
+      }
+
+      const seller = await storage.getSellerById(sellerId);
+      if (!seller) {
+        return res.status(404).json({ error: "Seller not found" });
+      }
+
+      const settings = await storage.getSettingsBySellerId(sellerId);
+      if (!settings.emailNotifications) {
+        return res.status(400).json({ error: "Email notifications are disabled" });
+      }
+
+      // Get a supplier to send test email to
+      const suppliers = await storage.getSuppliersBySellerId(sellerId);
+      if (suppliers.length === 0) {
+        return res.status(400).json({ error: "No suppliers found for testing" });
+      }
+
+      const supplier = suppliers[0];
+
+      console.log(`Sending test notification to supplier ${supplier.email}`);
+
+      const emailTemplate = emailService.generateLowStockEmailTemplate(
+        supplier.name,
+        "Test Product",
+        "TEST-SKU",
+        5,
+        10,
+        seller.companyName || seller.name
+      );
+
+      const emailSent = await emailService.sendLowStockAlert({
+        to: supplier.email,
+        subject: `🧪 TEST: Low Stock Alert System - ${seller.companyName || seller.name}`,
+        html: emailTemplate,
+        productName: "Test Product",
+        sku: "TEST-SKU",
+        currentStock: 5,
+        threshold: 10,
+      });
+
+      // Log the test notification
+      await storage.createNotification({
+        sellerId: sellerId,
+        productId: "test",
+        supplierId: supplier.id,
+        type: "test_notification",
+        status: emailSent ? "sent" : "failed",
+        subject: "Test Low Stock Alert",
+        message: "Test notification to verify email system is working",
+      });
+
+      res.json({ 
+        success: emailSent,
+        message: emailSent ? "Test email sent successfully" : "Test email failed to send",
+        emailConfigured: !!process.env.EMAIL_PASSWORD
+      });
+
+    } catch (error) {
+      console.error("Test notification error:", error);
+      res.status(500).json({ error: "Failed to send test notification" });
+    }
+  });

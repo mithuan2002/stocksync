@@ -155,24 +155,27 @@ function Dashboard() {
         // Check if email notifications are enabled and trigger a test email if needed
         if (updatedSettings.emailNotifications && !settings.emailNotifications) {
           try {
-            const notificationResponse = await fetch('/api/send-test-notification', {
+            const notificationResponse = await fetch('/api/test-notification', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify({ sellerId: currentSeller?.id }),
             });
+            const testResult = await notificationResponse.json();
+            
             if (!notificationResponse.ok) {
-              console.error('Failed to send test notification');
+              console.error('Failed to send test notification:', testResult);
               toast({
                 title: "Notification Test Failed",
-                description: "Could not send a test email notification.",
+                description: testResult.error || "Could not send a test email notification.",
                 variant: "destructive",
               });
             } else {
               toast({
-                title: "Test Notification Sent",
-                description: "A test email has been sent.",
+                title: testResult.success ? "Test Email Sent!" : "Email Configuration Issue",
+                description: testResult.message + (testResult.emailConfigured ? "" : " (EMAIL_PASSWORD not configured)"),
+                variant: testResult.success ? "default" : "destructive",
               });
             }
           } catch (notificationError) {
