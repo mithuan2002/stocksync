@@ -870,12 +870,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
-  return httpServer;
-}
-
-
-
   // Test email notification endpoint
   app.post("/api/test-notification", async (req, res) => {
     try {
@@ -945,3 +939,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to send test notification" });
     }
   });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
