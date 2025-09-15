@@ -28,7 +28,7 @@ function Dashboard() {
   // Fetch products from API
   const fetchProducts = async () => {
     if (!currentSeller) return;
-    
+
     try {
       const response = await fetch(`/api/products?sellerId=${currentSeller.id}`);
       if (response.ok) {
@@ -48,7 +48,7 @@ function Dashboard() {
   // Fetch settings from API
   const fetchSettings = async () => {
     if (!currentSeller) return;
-    
+
     try {
       const response = await fetch(`/api/settings?sellerId=${currentSeller.id}`);
       if (response.ok) {
@@ -93,21 +93,43 @@ function Dashboard() {
         const a = document.createElement('a');
         a.href = url;
         a.download = 'inventory-report.csv';
+        document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
-        
-        toast({
-          title: "Export Successful",
-          description: "Inventory report downloaded successfully",
-        });
-      } else {
-        throw new Error('Export failed');
+        document.body.removeChild(a);
       }
     } catch (error) {
-      console.error('Export error:', error);
+      console.error('Export failed:', error);
+    }
+  };
+
+  const handleUpdateProduct = async (productId: string, updates: Partial<Product>) => {
+    try {
+      const response = await fetch(`/api/products/${productId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates),
+      });
+
+      if (response.ok) {
+        // Refresh products data
+        fetchProducts(); // Use fetchProducts directly
+      } else {
+        const errorData = await response.json();
+        console.error('Failed to update product:', errorData.message);
+        toast({
+          title: "Update Failed",
+          description: `Failed to update product: ${errorData.message || 'Unknown error'}`,
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('Update failed:', error);
       toast({
-        title: "Export Failed",
-        description: "Failed to export inventory report",
+        title: "Update Failed",
+        description: "An error occurred while updating the product.",
         variant: "destructive",
       });
     }
@@ -126,26 +148,68 @@ function Dashboard() {
       if (response.ok) {
         const updatedSettings = await response.json();
         setSettings(updatedSettings);
-        
+
         // Refresh products to reflect new threshold calculations
         await fetchProducts();
-        
+
+        // Check if email notifications are enabled and trigger a test email if needed
+        if (updatedSettings.emailNotifications && !settings.emailNotifications) {
+          try {
+            const notificationResponse = await fetch('/api/send-test-notification', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ sellerId: currentSeller?.id }),
+            });
+            if (!notificationResponse.ok) {
+              console.error('Failed to send test notification');
+              toast({
+                title: "Notification Test Failed",
+                description: "Could not send a test email notification.",
+                variant: "destructive",
+              });
+            } else {
+              toast({
+                title: "Test Notification Sent",
+                description: "A test email has been sent.",
+              });
+            }
+          } catch (notificationError) {
+            console.error('Error sending test notification:', notificationError);
+            toast({
+              title: "Notification Test Error",
+              description: "An error occurred while sending a test email.",
+              variant: "destructive",
+            });
+          }
+        }
+
         toast({
           title: "Settings Updated",
           description: "Your preferences have been saved successfully",
         });
       } else {
-        throw new Error('Settings update failed');
+        const errorData = await response.json();
+        console.error('Settings update failed:', errorData.message);
+        toast({
+          title: "Update Failed",
+          description: `Failed to update settings: ${errorData.message || 'Unknown error'}`,
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error('Settings update error:', error);
       toast({
         title: "Update Failed",
-        description: "Failed to update settings",
+        description: "An error occurred while updating settings.",
         variant: "destructive",
       });
     }
   };
+
+  // Helper function to call fetchProducts for use in InventoryTable
+  const refetchProducts = fetchProducts;
 
   return (
     <div className="min-h-screen bg-background">
@@ -171,7 +235,7 @@ function Dashboard() {
           currentSeller={currentSeller}
           onSellerChange={setCurrentSeller}
         />
-        
+
         {!currentSeller ? (
           <div className="text-center py-12">
             <Building2 className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
@@ -217,7 +281,11 @@ function Dashboard() {
             <DashboardStats products={products} />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2">
-                <InventoryTable products={products} onExport={handleExport} />
+                <InventoryTable 
+                  products={products} 
+                  onExport={handleExport}
+                  onUpdateProduct={handleUpdateProduct}
+                />
               </div>
               <div className="space-y-6">
                 <div className="bg-gradient-to-br from-primary/10 to-primary/5 rounded-lg p-6 border">
@@ -288,12 +356,16 @@ function Dashboard() {
                 View and manage your consolidated inventory across all sales channels.
               </p>
             </div>
-            <InventoryTable products={products} onExport={handleExport} />
+            <InventoryTable 
+              products={products} 
+              onExport={handleExport}
+              onUpdateProduct={handleUpdateProduct}
+            />
           </TabsContent>
 
           <TabsContent value="suppliers" className="space-y-6">
             <SupplierManagement currentSeller={currentSeller!} />
-            
+
             <div className="border-t pt-6">
               <ProductSupplierSelector
                 currentSeller={currentSeller!}
