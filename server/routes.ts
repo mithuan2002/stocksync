@@ -670,6 +670,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const productData = insertProductSchema.partial().parse(req.body);
       const product = await storage.updateProduct(req.params.id, productData);
+      
+      // Check if supplier was assigned to a low stock product and send notification
+      if (productData.supplierId && product.isLowStock) {
+        const settings = await storage.getSettingsBySellerId(product.sellerId);
+        if (settings.emailNotifications) {
+          try {
+            const supplier = await storage.getSupplierById(productData.supplierId);
+            const seller = await storage.getSellerById(product.sellerId);
+            
+            if (supplier && seller) {
+              const emailTemplate = emailService.generateLowStockEmailTemplate(
+                supplier.name,
+                product.productName,
+                product.sku,
+                product.totalQuantity || 0,
+                product.lowStockThreshold || settings.globalLowStockThreshold,
+                seller.companyName || seller.name
+              );
+
+              const emailSent = await emailService.sendLowStockAlert({
+                to: supplier.email,
+                subject: `🚨 URGENT: Low Stock Alert - ${product.productName} (SKU: ${product.sku})`,
+                html: emailTemplate,
+                productName: product.productName,
+                sku: product.sku,
+                currentStock: product.totalQuantity || 0,
+                threshold: product.lowStockThreshold || settings.globalLowStockThreshold,
+              });
+
+              // Log the notification
+              await storage.createNotification({
+                sellerId: product.sellerId,
+                productId: product.id,
+                supplierId: productData.supplierId,
+                type: "low_stock_alert",
+                status: emailSent ? "sent" : "failed",
+                subject: `Low Stock Alert - ${product.productName}`,
+                message: `Stock level: ${product.totalQuantity || 0} units (below threshold of ${product.lowStockThreshold || settings.globalLowStockThreshold} units)`,
+              });
+
+              console.log(`Low stock notification ${emailSent ? 'sent' : 'failed'} for newly assigned supplier on product ${product.sku} to ${supplier.email}`);
+            }
+          } catch (error) {
+            console.error(`Failed to send notification for newly assigned supplier on product ${product.sku}:`, error);
+          }
+        }
+      }
+      
       res.json(product);
     } catch (error) {
       console.error("Error updating product:", error);
