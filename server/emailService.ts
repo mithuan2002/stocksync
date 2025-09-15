@@ -6,7 +6,7 @@ const SMTP_CONFIG = {
   port: 587,
   secure: false,
   auth: {
-    user: process.env.EMAIL_USER || 'flowstck.tool@gmail.com',
+    user: 'flowstck.tool@gmail.com',
     pass: process.env.EMAIL_PASSWORD || 'Wponder@2002',
   },
 };
@@ -29,18 +29,11 @@ class EmailService {
   }
 
   async sendLowStockAlert(notification: EmailNotification): Promise<boolean> {
-    const emailUser = process.env.EMAIL_USER || 'flowstck.tool@gmail.com';
+    const emailUser = 'flowstck.tool@gmail.com';
     const emailPassword = process.env.EMAIL_PASSWORD || 'Wponder@2002';
     
-    if (!emailPassword) {
-      console.warn('EMAIL_PASSWORD not configured - email notifications disabled');
-      console.log('Would send email to:', notification.to);
-      console.log('Subject:', notification.subject);
-      console.log('Product:', notification.productName, 'SKU:', notification.sku);
-      console.log('Stock:', notification.currentStock, 'Threshold:', notification.threshold);
-      return true; // Return true to continue processing
-    }
-
+    console.log(`Attempting to send email with user: ${emailUser}, password configured: ${!!emailPassword}`);
+    
     try {
       const mailOptions = {
         from: `"FlowStock Alert System" <${emailUser}>`,

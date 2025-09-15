@@ -768,7 +768,7 @@ export class DatabaseStorage implements IStorage {
     return {
       id: n.id,
       sellerId: n.sellerId,
-      productId: n.productId,
+      productId: n.productId || undefined,
       supplierId: n.supplierId,
       type: n.type,
       status: n.status,

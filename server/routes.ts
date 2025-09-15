@@ -997,7 +997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log the test notification
       await storage.createNotification({
         sellerId: sellerId,
-        productId: "test",
+        productId: null,
         supplierId: supplier.id,
         type: "test_notification",
         status: emailSent ? "sent" : "failed",
